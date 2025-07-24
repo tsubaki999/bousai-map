@@ -1,19 +1,15 @@
 <!DOCTYPE html>
 <html>
-  <head>
+<head>
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <meta charset="utf-8" />
-    <!-- ★★★ 修正点: 変数名を faviconUrl に変更 ★★★ -->
     <meta name="referrer" content="no-referrer-when-downgrade">
-    <!-- title>防災マップ</title-->
-    <!-- link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath d='M50 10 L90 30 L90 70 L50 90 L10 70 L10 30 Z' fill='%234285F4' stroke='%23FFFFFF' stroke-width='5'/%3E%3Cpath d='M30 50 L50 70 L70 50' fill='none' stroke='%23FFFFFF' stroke-width='10' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" type="image/svg+xml"-->
-    <meta name="referrer" content="no-referrer-when-downgrade">
-    <!-- ★★★ サーバーサイドで設定されたCSSをインポート ★★★ -->
+    <!-- CSSファイルをインポート -->
     <?!= include('stylesheet'); ?>
-  </head>
-  <body>
+</head>
+<body>
     <div id="loader-overlay">
       <div class="spinner"></div>
       <div id="loader-text">データを読み込んでいます...</div>
@@ -31,6 +27,7 @@
             <label><input type="checkbox" id="toggleTraffic" checked> 交通状況</label>
             <label><input type="checkbox" id="toggleWarnings" checked> 気象警報</label>
             <label><input type="checkbox" id="toggleEarthquakes" > 地震情報</label>
+            <label><input type="checkbox" id="toggleTyphoons" checked> 台風情報</label>
             <label><input type="checkbox" id="toggleLsp" checked> 線状降水帯</label>
             <label><input type="checkbox" id="toggleOutages" checked> 停電情報</label>
             <label><input type="checkbox" id="toggleMonogatariStores" checked> 店舗</label>
@@ -48,7 +45,8 @@
         <div id="affectedStores" class="info-panel" style="background:#fff8e1;"><h3 class="panel-header" onclick="togglePanel(this)">影響下の店舗 ▾</h3><div class="panel-content"><div class="panel-inner-content"><ul id="affectedStoresList" style="list-style:none; padding:0; margin:0;"><li>現在、影響を受けている店舗はありません。</li></ul></div></div></div>
       </div>
     </div>
-    <!-- ★★★ サーバーサイドで設定されたJavaScriptをインポート ★★★ -->
+    
+    <!-- JavaScriptファイルをインポート -->
     <?!= include('javascript'); ?>
-  </body>
+</body>
 </html>
