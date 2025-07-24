@@ -1,0 +1,81 @@
+<style>
+      html, body { margin: 0; padding: 0; height: 100vh; font-family: sans-serif; overflow: hidden; }
+      #app-container { display: flex; flex-direction: column; height: 100%; }
+      #map-wrapper { flex-grow: 1; position: relative; }
+      #map { width: 100%; height: 100%; }
+      #controls { position: absolute; top: 10px; left: 10px; z-index: 5; padding: 10px; background: rgba(255, 255, 255, 0.9); border-radius: 4px; box-shadow: 0 2px 6px rgba(0,0,0,0.3); display: flex; flex-wrap: wrap; gap: 1em; align-items: center; max-width: 90%; }
+      #controls fieldset { padding: 0.3em 0.6em; border: 1px solid #ccc; border-radius: 4px; display: flex; flex-wrap: wrap; gap: 0.8em; }
+      #controls legend { font-size: 12px; font-weight: bold; }
+      #controls label { cursor: pointer; user-select: none; }
+      #radar-controls { display: flex; align-items: center; gap: 0.5em; flex-wrap: wrap; }
+      #radar-controls input[type=range] { vertical-align: middle; }
+      #last-updated { font-size: 10px; color: #555; width: 100%; text-align: right; margin-top: 5px; }
+      select { padding: 5px; font-size: 14px; }
+      #info-panels-container { flex-shrink: 0; overflow-y: auto; max-height: 40vh; background: #fff; }
+      .info-panel { font-size: 14px; border-top: 1px solid #ccc; }
+      .panel-header { margin: 0; padding: 10px; cursor: pointer; user-select: none; font-size: 16px; font-weight: bold; }
+      .panel-header:hover { color: #007bff; }
+      .panel-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-in-out; }
+      .panel-inner-content { padding: 0 10px 10px 10px; }
+      @keyframes pulse {
+        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.4); }
+        70% { transform: scale(1.1); box-shadow: 0 0 5px 10px rgba(0, 0, 0, 0); }
+        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
+      }
+      #legend-panel .panel-inner-content { display: flex; flex-direction: column; gap: 8px; }
+      .legend-item { display: flex; align-items: flex-start; font-size: 12px; user-select: none; }
+      .legend-color-box { width: 20px; height: 20px; margin-right: 8px; border: 1px solid #666; flex-shrink: 0; line-height: 20px; text-align: center; font-weight: bold; color: #333; }
+      .legend-text strong { display: block; font-size: 14px; margin-bottom: 2px; }
+      .warning-label {
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: bold;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+        animation: pulse 1.5s infinite ease-in-out;
+        position: absolute;
+        white-space: nowrap;
+        transform: translate(-50%, -150%);
+      }
+      #loader-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: rgba(255, 255, 255, 0.95);
+        z-index: 9999;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+        transition: opacity 0.5s ease-out;
+      }
+
+      #loader-overlay.hidden {
+        opacity: 0;
+        pointer-events: none; /* 透明になった後、下のマップを操作できるようにする */
+      }
+
+      .spinner {
+        border: 8px solid #f3f3f3; /* Light grey */
+        border-top: 8px solid #3498db; /* Blue */
+        border-radius: 50%;
+        width: 60px;
+        height: 60px;
+        animation: spin 1.5s linear infinite;
+        margin-bottom: 20px;
+      }
+
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+
+      #loader-text {
+        font-size: 18px;
+        font-weight: bold;
+        color: #333;
+      }
+
+    </style>
