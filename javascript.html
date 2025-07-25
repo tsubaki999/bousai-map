@@ -214,31 +214,18 @@
     }
 
     function placeWarningMarkers(warnings) {
-        if (!warnings || warnings.length === 0) {
-            checkStoreImpacts();
-            return; 
-        }
-
-        warnings.forEach(w => {
-            // forEachのスコープ内で変数を定義
-            const lat = parseFloat(w.lat), lng = parseFloat(w.lng);
-            if (isNaN(lat) || isNaN(lng)) return; // continueの代わり
-            
-            const style = getWarningStyle(w.title);
-            const circle = new google.maps.Circle({ map: map, center: { lat, lng }, radius: 20000, fillColor: style.color, fillOpacity: 0.25, strokeColor: style.color, strokeOpacity: 0.5, strokeWeight: 1 });
+        if (!warnings || warnings.length === 0) { checkStoreImpacts(); return; }
+        warnings.forEach(function(w) {
+            var lat = parseFloat(w.lat), lng = parseFloat(w.lng); if (isNaN(lat) || isNaN(lng)) return;
+            var style = getWarningStyle(w.title);
+            var circle = new google.maps.Circle({ map: map, center: { lat: lat, lng: lng }, radius: 20000, fillColor: style.color, fillOpacity: 0.25, strokeColor: style.color, strokeOpacity: 0.5, strokeWeight: 1 });
             circle.warningStyle = style;
             allWarningCircles.push(circle);
-
-            const infoContent = `<strong style="color:${style.color};">${escapeHtml(w.title)}</strong><br><strong>地域:</strong> ${escapeHtml(w.region)}<br><strong>内容:</strong> ${escapeHtml(w.summary)}<br><a href="${escapeHtml(w.link)}" target="_blank">詳細(気象庁)</a><br><strong>発表:</strong> ${new Date(w.time).toLocaleString()}`;
-            
-            circle.addListener('click', () => {
-                infoWindow.setContent(infoContent);
-                infoWindow.setPosition({ lat, lng });
-                infoWindow.open(map);
+            circle.addListener('click', function() {
+                var a_content = `<strong style="color:${style.color};">${escapeHtml(w.title)}</strong><br><strong>地域:</strong> ${escapeHtml(w.region)}<br><strong>内容:</strong> ${escapeHtml(w.summary)}<br><a href="${escapeHtml(w.link)}" target="_blank">詳細(気象庁)</a><br><strong>発表:</strong> ${new Date(w.time).toLocaleString()}`;
+                infoWindow.setContent(a_content); infoWindow.setPosition({ lat: lat, lng: lng }); infoWindow.open(map);
             });
         });
-
-        // 全ての描画が終わった後に一括で処理
         toggleLayerVisibility(allWarningCircles, document.getElementById('toggleWarnings').checked);
         checkStoreImpacts();
     }
@@ -295,44 +282,33 @@
     }
 
     function placeEarthquakeMarkers(quakes) {
-        if (!quakes || quakes.length === 0) return;
-
-        quakes.forEach(q => {
-            const lat = parseFloat(q.lat), lng = parseFloat(q.lng);
-            if (isNaN(lat) || isNaN(lng)) return;
-            
-            const position = { lat, lng };
-            const intensity = parseFloat(q.maxIntensity);
-            const style = getEarthquakeStyle(intensity);
-            
-            const circle = new google.maps.Circle({ strokeColor: style.color, strokeOpacity: 0.5, strokeWeight: 1, fillColor: style.color, fillOpacity: 0.2, map: map, center: position, radius: style.scale * 15000, zIndex: 99 });
-            circle.quakeStyle = style;
-            allEarthquakeCircles.push(circle);
-
-            const marker = new google.maps.marker.AdvancedMarkerElement({ position, map, content: createEarthquakeMarkerContent(intensity), title: q.title, zIndex: 100 });
-            allEarthquakeOverlays.push(circle, marker);
-            
-            const infoContent = `<strong>${escapeHtml(q.title)}</strong><br>最大震度: ${convertIntensityToString(intensity)}<br>${escapeHtml(q.content)}<br><a href="${escapeHtml(q.detailLink)}" target="_blank">詳細情報</a>`;
-            marker.addListener('gmp-click', () => { infoWindow.setContent(infoContent); infoWindow.open({ anchor: marker, map: map }); });
-            circle.addListener('click', () => { infoWindow.setContent(infoContent); infoWindow.setPosition(position); infoWindow.open(map); });
-        });
-
-        toggleLayerVisibility(allEarthquakeOverlays, document.getElementById('toggleEarthquakes').checked);
-        // checkStoreImpacts(); // warning側で呼ばれるのでここでは不要
+      if (!quakes || quakes.length === 0) return;
+      quakes.forEach(function(q) {
+        const lat = parseFloat(q.lat), lng = parseFloat(q.lng); if (isNaN(lat) || isNaN(lng)) return;
+        const position = { lat: lat, lng: lng }; const intensity = parseFloat(q.maxIntensity); const style = getEarthquakeStyle(intensity);
+        const circle = new google.maps.Circle({ strokeColor: style.color, strokeOpacity: 0.5, strokeWeight: 1, fillColor: style.color, fillOpacity: 0.2, map: map, center: position, radius: style.scale * 15000, zIndex: 99 });
+        circle.quakeStyle = style; allEarthquakeCircles.push(circle);
+        const marker = new google.maps.marker.AdvancedMarkerElement({ position: position, map: map, content: createEarthquakeMarkerContent(intensity), title: q.title, zIndex: 100 });
+        allEarthquakeOverlays.push(circle, marker);
+        const infoContent = `<strong>${escapeHtml(q.title)}</strong><br>最大震度: ${convertIntensityToString(intensity)}<br>${escapeHtml(q.content)}<br><a href="${escapeHtml(q.detailLink)}" target="_blank">詳細情報</a>`;
+        marker.addListener('gmp-click', () => { infoWindow.setContent(infoContent); infoWindow.open({ anchor: marker, map: map }); });
+        circle.addListener('click', () => { infoWindow.setContent(infoContent); infoWindow.setPosition(position); infoWindow.open(map); });
+      });
+      toggleLayerVisibility(allEarthquakeOverlays, document.getElementById('toggleEarthquakes').checked);
     }
     
     function placeLineShapedPrecipitationPolygons(polygons) {
-        if (!polygons || polygons.length === 0) return;
-
-        polygons.forEach(area => {
-            const polygonPath = area.coordinates[0].map(coord => ({ lat: coord[1], lng: coord[0] }));
-            const lspPolygon = new google.maps.Polygon({ paths: polygonPath, strokeColor: "#FF00FF", strokeOpacity: 0.8, strokeWeight: 2, fillColor: "#FF00FF", fillOpacity: 0.35, map: map, zIndex: 90 });
-            allLspPolygons.push(lspPolygon);
-            const infoContent = `<strong style="color:#FF00FF;">【警戒レベル4相当】線状降水帯発生情報</span></strong><br><strong>エリア:</strong> ${escapeHtml(area.name)}<br><strong>発表時刻:</strong> ${new Date(area.time).toLocaleString()}`;
-            lspPolygon.addListener('click', event => { infoWindow.setContent(infoContent); infoWindow.setPosition(event.latLng); infoWindow.open(map); });
+      if (!polygons || polygons.length === 0) return;
+      polygons.forEach(function(area) {
+        var polygonPath = area.coordinates[0].map(function(coord) { return { lat: coord[1], lng: coord[0] }; });
+        var lspPolygon = new google.maps.Polygon({ paths: polygonPath, strokeColor: "#FF00FF", strokeOpacity: 0.8, strokeWeight: 2, fillColor: "#FF00FF", fillOpacity: 0.35, map: map, zIndex: 90 });
+        allLspPolygons.push(lspPolygon);
+        lspPolygon.addListener('click', function(event) {
+          var content = `<strong style="color:#FF00FF;">【警戒レベル4相当】線状降水帯発生情報</span></strong><br><strong>エリア:</strong> ${escapeHtml(area.name)}<br><strong>発表時刻:</strong> ${new Date(area.time).toLocaleString()}`;
+          infoWindow.setContent(content); infoWindow.setPosition(event.latLng); infoWindow.open(map);
         });
-
-        toggleLayerVisibility(allLspPolygons, document.getElementById('toggleLsp').checked);
+      });
+      toggleLayerVisibility(allLspPolygons, document.getElementById('toggleLsp').checked);
     }
 
     function loadWeatherWarnings(warnings) {
