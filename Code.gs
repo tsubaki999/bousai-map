@@ -10,19 +10,27 @@ function include(filename) {
 
 /**
  * ウェブアプリのGETリクエストを処理する関数。
- * HTMLテンプレートを使用して、複数ファイルを結合します。
+ * HTMLテンプレートを使用して、複数ファイルを結合し、タイトルとファビコンを設定します。
  */
 function doGet(e) {
-  var htmlOutput = HtmlService.createTemplateFromFile('map').evaluate()
-      .setTitle('物語防災マップ(アルファ版)')
+  // 1. メインのHTMLをテンプレートとして読み込む
+  var template = HtmlService.createTemplateFromFile('map');
+  
+  // 2. HTML側に渡す変数を設定（今回は使わないが、将来の拡張用に残すことも可能）
+  // template.someVariable = 'someValue';
+
+  // 3. テンプレートを評価してHTMLコンテンツを生成
+  var htmlOutput = template.evaluate()
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
       
-  var faviconUrl = 'https://cdn-icons-png.flaticon.com/512/6572/6572628.png';
-  htmlOutput.setFaviconUrl(faviconUrl);
+  // 4. 公式メソッドでタイトルとファビコンを確実に設定
+  htmlOutput.setTitle('物語防災マップ');
+  htmlOutput.setFaviconUrl('https://i.imgur.com/r8DRrJg.png');
       
   return htmlOutput;
 }
+
 
 /**
  * ウェブアプリのGETリクエストを処理する関数。
