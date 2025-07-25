@@ -136,6 +136,7 @@
         return markerContent;
     }
 
+    // ★★★ 修正後の placeMonogatariMarkers 関数 （緯度経度キャッシュ対応版） ★★★
     function placeMonogatariMarkers(stores) {
         if (!stores || stores.length === 0) { console.log("店舗データがありません。"); return; }
         monogatariMarkers.forEach(m => m.marker.setMap(null));
@@ -159,6 +160,7 @@
         toggleLayerVisibility(markers, initialVisibility);
     }
     
+    // --- この後の関数は、前回の回答と同じものを配置してください ---
     function getWarningStyle(title) { if (!title) return { color: '#888888', level: 0, impactLevel: 0, name: '情報' }; if (title.includes('特別警報')) return { color: '#800080', level: 5, impactLevel: 10, name: '【特別警報】' }; if (title.includes('土砂災害警戒情報')) return { color: '#FF00FF', level: 4, impactLevel: 8, name: '【土砂災害警戒】' }; if (title.includes('警報')) return { color: '#FF0000', level: 3, impactLevel: 6, name: '【警報】' }; if (title.includes('注意報')) return { color: '#FFFF00', level: 2, impactLevel: 4, name: '【注意報】' }; return { color: '#888888', level: 1, impactLevel: 2, name: '早期注意情報' }; }
     function placeWarningMarkers(warnings) { if (!warnings || warnings.length === 0) { checkStoreImpacts(); return; } warnings.forEach(w => { const lat = parseFloat(w.lat), lng = parseFloat(w.lng); if (isNaN(lat) || isNaN(lng)) return; const style = getWarningStyle(w.title); const circle = new google.maps.Circle({ map: map, center: { lat, lng }, radius: 20000, fillColor: style.color, fillOpacity: 0.25, strokeColor: style.color, strokeOpacity: 0.5, strokeWeight: 1 }); circle.warningStyle = style; allWarningCircles.push(circle); const infoContent = `<strong style="color:${style.color};">${escapeHtml(w.title)}</strong><br><strong>地域:</strong> ${escapeHtml(w.region)}<br><strong>内容:</strong> ${escapeHtml(w.summary)}<br><a href="${escapeHtml(w.link)}" target="_blank">詳細(気象庁)</a><br><strong>発表:</strong> ${new Date(w.time).toLocaleString()}`; circle.addListener('click', () => {infoWindow.setContent(infoContent); infoWindow.setPosition({ lat, lng }); infoWindow.open(map);}); }); toggleLayerVisibility(allWarningCircles, document.getElementById('toggleWarnings').checked); checkStoreImpacts(); }
     function convertIntensityToString(intensity) { if (intensity >= 7.0) return '7'; if (intensity >= 6.5) return '6強'; if (intensity >= 6.0) return '6弱'; if (intensity >= 5.5) return '5強'; if (intensity >= 5.0) return '5弱'; if (intensity >= 4.0) return '4'; if (intensity >= 3.0) return '3'; if (intensity >= 2.0) return '2'; if (intensity >= 1.0) return '1'; return '不明'; }
