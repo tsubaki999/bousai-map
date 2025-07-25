@@ -657,11 +657,18 @@
      * @param {Array<Object>} typhoonData - 描画対象の台風データ配列
      */
     function placeTyphoonForecast(typhoonData) {
-        if (!typhoonData || typhoonData.length === 0) { return; }
+        if (!typhoonData || typhoonData.length === 0) {
+            // ダミーデータを呼び出す場合はここで呼び出す
+            // console.log("台風情報が0件のため、訓練用の伊勢湾台風データを表示します。");
+            // typhoonData = generateIsewanTyphoonDummyData();
+            return; 
+        }
+        
+        let dataToDraw = typhoonData;
 
         const lineSymbol = { path: 'M 0,-1 0,1', strokeOpacity: 1, scale: 3 };
         
-        typhoonData.forEach(typhoon => {
+        dataToDraw.forEach(typhoon => {
             if (!typhoon.forecastPoints || typhoon.forecastPoints.length === 0) return;
 
             const forecastPath = typhoon.forecastPoints.map(p => ({ lat: p.lat, lng: p.lng }));
@@ -719,6 +726,7 @@
                 };
                 centerMarker.addListener('click', infoWindowListener);
             });
+        // ★★★ 不足していた閉じ括弧とセミコロンを追加 ★★★
         });
         
         const isVisible = document.getElementById('toggleTyphoons').checked;
