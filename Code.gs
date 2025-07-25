@@ -1,6 +1,7 @@
 // グローバル変数
 const ss = SpreadsheetApp.getActiveSpreadsheet();
 
+
 /**
  * 他のHTMLファイルをインポートするためのヘルパー関数
  */
@@ -16,20 +17,18 @@ function doGet(e) {
   // 1. メインのHTMLをテンプレートとして読み込む
   var template = HtmlService.createTemplateFromFile('map');
   
-  // 2. HTML側に渡す変数を設定（今回は使わないが、将来の拡張用に残すことも可能）
-  // template.someVariable = 'someValue';
-
-  // 3. テンプレートを評価してHTMLコンテンツを生成
+  // 2. テンプレートを評価してHTMLコンテンツを生成
   var htmlOutput = template.evaluate()
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
       
-  // 4. 公式メソッドでタイトルとファビコンを確実に設定
+  // 3. 公式メソッドでタイトルとファビコンを確実に設定
   htmlOutput.setTitle('物語防災マップ');
   htmlOutput.setFaviconUrl('https://i.imgur.com/r8DRrJg.png');
       
   return htmlOutput;
 }
+
 
 
 /**
