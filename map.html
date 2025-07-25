@@ -31,6 +31,10 @@
             <label><input type="checkbox" id="toggleTraffic" checked> 交通状況</label>
             <label><input type="checkbox" id="toggleWarnings" checked> 気象警報</label>
             <label><input type="checkbox" id="toggleEarthquakes" > 地震情報</label>
+
+            <!-- ★★★ この行が追加されていることを確認 ★★★ -->
+            <label><input type="checkbox" id="toggleTyphoons" checked> 台風情報</label>
+
             <label><input type="checkbox" id="toggleLsp" checked> 線状降水帯</label>
             <label><input type="checkbox" id="toggleOutages" checked> 停電情報</label>
             <label><input type="checkbox" id="toggleMonogatariStores" checked> 店舗</label>
@@ -51,9 +55,4 @@
     <!-- ★★★ サーバーサイドで設定されたJavaScriptをインポート ★★★ -->
     <?!= include('javascript'); ?>
   </body>
-</html>
-    
-    <!-- JavaScriptファイルをインポート -->
-    <?!= include('javascript'); ?>
-</body>
 </html>
