@@ -658,9 +658,6 @@
      */
     function placeTyphoonForecast(typhoonData) {
         if (!typhoonData || typhoonData.length === 0) {
-            // ダミーデータを呼び出す場合はここで呼び出す
-            // console.log("台風情報が0件のため、訓練用の伊勢湾台風データを表示します。");
-            // typhoonData = generateIsewanTyphoonDummyData();
             return; 
         }
         
@@ -726,7 +723,6 @@
                 };
                 centerMarker.addListener('click', infoWindowListener);
             });
-        // ★★★ 不足していた閉じ括弧とセミコロンを追加 ★★★
         });
         
         const isVisible = document.getElementById('toggleTyphoons').checked;
