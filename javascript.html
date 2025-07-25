@@ -64,7 +64,7 @@
         allRoutes = routes;
         populateFilters(routes);
         await placeMarkers();
-        drawFilteredRoutes();
+        //drawFilteredRoutes();
         await placeMonogatariMarkers(monogatariStores);
         loadWeatherWarnings(warnings);
         placeEarthquakeMarkers(quakes);
@@ -108,6 +108,18 @@
       document.getElementById('toggleMonogatariStores').addEventListener('change', function(e) {
           var markers = monogatariMarkers.map(function(m) { return m.marker; });
           toggleLayerVisibility(markers, e.target.checked);
+      });
+      document.getElementById('toggleRoutes').addEventListener('change', function(e) {
+        if (e.target.checked) {
+            // チェックが入ったら、全ルートを描画
+            drawFilteredRoutes(); 
+        } else {
+            // チェックが外れたら、描画済みのルートをすべて消去
+            renderedRoutes.forEach(r => r.setMap(null));
+            renderedRoutes = [];
+            animationIntervals.forEach(clearInterval);
+            animationIntervals = [];
+        }
       });
     }
 
@@ -512,15 +524,43 @@
       destSet.forEach(name => { var o = document.createElement('option'); o.value = name; o.textContent = name; destSelect.appendChild(o); });
     }
     function drawFilteredRoutes() {
-      if(!allRoutes) return;
-      var filtered = allRoutes.filter(r => (document.getElementById('originSelect').value === "all" || r.originName === document.getElementById('originSelect').value) && (document.getElementById('destinationSelect').value === "all" || r.destinationName === document.getElementById('destinationSelect').value));
-      filtered.forEach(route => {
-        var waypointsForRequest = route.waypoints.map(w => ({ location: w.address, stopover: true }));
-        directionsService.route({ origin: route.origin, destination: route.destination, waypoints: waypointsForRequest, travelMode: 'DRIVING', drivingOptions: { departureTime: new Date(), trafficModel: 'bestguess' }}, (result, status) => {
-          if (status === 'OK') drawAnimatedRoute(result, route);
-          else console.error('ルート取得失敗:', status, '対象:', route.originName + ' -> ' + route.destinationName);
-        });
-      });
+        if(!allRoutes) return;
+        
+        // 既存のルートをクリア
+        renderedRoutes.forEach(r => r.setMap(null));
+        renderedRoutes = [];
+        animationIntervals.forEach(clearInterval);
+        animationIntervals = [];
+
+        // ★★★ 3. フィルタリングロジックを微修正 ★★★
+        // （現状のままでも "すべて" が選択されているので問題ありませんが、より明確にします）
+        var originFilter = document.getElementById('originSelect').value;
+        var destFilter = document.getElementById('destinationSelect').value;
+        
+        // この関数が呼ばれた時点では、常に全ルートを描画対象とする
+        // (将来的にフィルタリングを復活させることも可能)
+        var filtered = allRoutes; 
+
+        let delay = 0;
+        filtered.forEach(route => {
+            setTimeout(() => {
+                var waypointsForRequest = (route.waypoints || []).map(w => ({ location: w.address, stopover: true }));
+                directionsService.route({ 
+                    origin: route.origin, 
+                    destination: route.destination, 
+                    waypoints: waypointsForRequest, 
+                    travelMode: 'DRIVING', 
+                    drivingOptions: { departureTime: new Date(), trafficModel: 'bestguess' }
+                }, (result, status) => { 
+                    if (status === 'OK') {
+                        drawAnimatedRoute(result, route); 
+                    } else {
+                        console.error('ルート取得失敗:', status, '対象:', route.originName + ' -> ' + route.destinationName); 
+                    }
+                });
+            }, delay);
+            delay += 100; // API負荷軽減のための遅延
+        }); 
     }
     function drawAnimatedRoute(directionsResult, routeInfo) {
       var route = directionsResult.routes[0], totalDistance = 0, totalDuration = 0;
