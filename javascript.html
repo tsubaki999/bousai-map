@@ -5,6 +5,8 @@
     var allWarningCircles = [], allEarthquakeCircles = [], allEarthquakeOverlays = [], allLspPolygons = [], allOutageMarkers = [], monogatariMarkers = [];
     var radarUpdateInterval = null;
     var trafficLayer;
+    var allTyphoonOverlays = [];
+    var earthquakeAnimationIntervals = []; // これは既にあるはず
 
     // --- ユーティリティ関数 ---
     function escapeHtml(str) {
@@ -35,6 +37,8 @@
         allEarthquakeCircles = [];
         allEarthquakeOverlays.forEach(o => o.setMap(null));
         allEarthquakeOverlays = [];
+        allTyphoonOverlays.forEach(o => o.setMap(null));
+        allTyphoonOverlays = [];
         allLspPolygons.forEach(p => p.setMap(null));
         allLspPolygons = [];
         allOutageMarkers.forEach(m => m.setMap(null));
@@ -103,6 +107,7 @@
       document.getElementById('toggleTraffic').addEventListener('change', function(e) { trafficLayer.setMap(e.target.checked ? map : null); });
       document.getElementById('toggleWarnings').addEventListener('change', function(e) { toggleLayerVisibility(allWarningCircles, e.target.checked); checkStoreImpacts(); });
       document.getElementById('toggleEarthquakes').addEventListener('change', function(e) { toggleLayerVisibility(allEarthquakeOverlays, e.target.checked); checkStoreImpacts(); });
+      document.getElementById('toggleTyphoons').addEventListener('change', (e) => toggleLayerVisibility(allTyphoonOverlays, e.target.checked));
       document.getElementById('toggleLsp').addEventListener('change', function(e) { toggleLayerVisibility(allLspPolygons, e.target.checked); });
       document.getElementById('toggleOutages').addEventListener('change', function(e) { toggleLayerVisibility(allOutageMarkers, e.target.checked); });
       document.getElementById('toggleMonogatariStores').addEventListener('change', function(e) {
