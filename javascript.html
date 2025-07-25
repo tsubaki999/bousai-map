@@ -704,89 +704,31 @@
     }
 
     /**
-     * 【描画統括】受け取った台風データを元に、各描画ヘルパーを呼び出す
-     * @param {Array<Object>} typhoonData - 描画対象の台風データ配列
+     * 【描画統括】台風データを元に、各描画ヘルパーを呼び出す
      */
     function placeTyphoonForecast(typhoonData) {
-        // 描画するデータがない場合はここで処理を終了
         if (!typhoonData || typhoonData.length === 0) {
-            return; 
+            console.log("台風情報が0件のため、訓練データを表示します。");
+            typhoonData = generateIsewanTyphoonDummyData();
         }
-        
-        const lineSymbol = { path: 'M 0,-1 0,1', strokeOpacity: 1, scale: 3 };
         
         typhoonData.forEach(typhoon => {
             if (!typhoon.forecastPoints || typhoon.forecastPoints.length === 0) return;
-
-            const forecastPath = typhoon.forecastPoints.map(p => ({ lat: p.lat, lng: p.lng }));
             
-            const pathLine = new google.maps.Polyline({
-                path: forecastPath, geodesic: true, strokeColor: '#FF6347',
-                strokeOpacity: 0, strokeWeight: 2,
-                icons: [{ icon: lineSymbol, offset: '0', repeat: '15px' }]
-            });
-            allTyphoonOverlays.push(pathLine);
+            drawTyphoonPathLine(typhoon.forecastPoints);
             
             typhoon.forecastPoints.forEach(point => {
-                const isActual = point.type === '実況';
-                const center = { lat: point.lat, lng: point.lng };
-
-                // 実況円・ポリゴンの描画
-                if (isActual) {
-                    if (point.windArea) {
-                        point.windArea.forEach(coords => {
-                            const polygonPath = coords.map(c => ({ lat: c[1], lng: c[0] }));
-                            const windPolygon = new google.maps.Polygon({ paths: polygonPath, strokeColor: '#FFD700', strokeOpacity: 0.8, strokeWeight: 1.5, fillColor: '#FFD700', fillOpacity: 0.2, map: map });
-                            allTyphoonOverlays.push(windPolygon);
-                        });
-                    } else if (point.windRadius > 0) {
-                        const windCircle = new google.maps.Circle({ strokeColor: '#FFD700', strokeOpacity: 0.8, strokeWeight: 1.5, fillColor: '#FFD700', fillOpacity: 0.2, map: map, center: center, radius: point.windRadius });
-                        allTyphoonOverlays.push(windCircle);
-                    }
-                    if (point.stormArea) {
-                        point.stormArea.forEach(coords => {
-                            const polygonPath = coords.map(c => ({ lat: c[1], lng: c[0] }));
-                            const stormPolygon = new google.maps.Polygon({ paths: polygonPath, strokeColor: '#FF0000', strokeOpacity: 0.8, strokeWeight: 1.5, fillColor: '#FF0000', fillOpacity: 0.25, map: map });
-                            allTyphoonOverlays.push(stormPolygon);
-                        });
-                    } else if (point.stormRadius > 0) {
-                        const stormCircle = new google.maps.Circle({ strokeColor: '#FF0000', strokeOpacity: 0.8, strokeWeight: 1.5, fillColor: '#FF0000', fillOpacity: 0.25, map: map, center: center, radius: point.stormRadius });
-                        allTyphoonOverlays.push(stormCircle);
-                    }
-                }
-
-                // 予報円の描画
-                if (point.forecastRadius > 0) {
-                    const forecastCircle = new google.maps.Circle({ strokeColor: '#FF6347', strokeOpacity: 0.8, strokeWeight: 1.5, fillColor: '#FF6347', fillOpacity: 0.15, map: map, center: center, radius: point.forecastRadius });
-                    allTyphoonOverlays.push(forecastCircle);
-                }
-                
-                // 中心マーカーと情報ウィンドウ
-                const centerMarker = new google.maps.Marker({ position: center, map: map, icon: { path: google.maps.SymbolPath.CIRCLE, scale: isActual ? 6 : 4, fillColor: isActual ? '#FF0000' : '#FFFFFF', fillOpacity: 1, strokeColor: isActual ? '#FFFFFF' : '#FF6347', strokeWeight: isActual ? 2 : 3 }, title: `${typhoon.name} (${point.type})` });
-                allTyphoonOverlays.push(centerMarker);
-                
-                const date = new Date(point.time);
-                const timeString = `${date.getMonth()+1}月${date.getDate()}日${date.getHours()}時`;
-                const contentString = `
-                  <div style="font-family: sans-serif; font-size: 14px;">
-                    <strong style="font-size: 16px; color: ${isActual ? '#FF0000' : '#FF6347'};">${typhoon.name} - ${point.type}</strong><br>
-                    <strong>日時:</strong> ${timeString}<br>
-                    <strong>中心気圧:</strong> ${point.pressure || 'N/A'} hPa<br>
-                    <strong>最大風速:</strong> ${point.maxWindSpeed || 'N/A'} m/s
-                  </div>`;
-                const infoWindowListener = () => { infoWindow.setContent(contentString); infoWindow.setPosition(center); infoWindow.open(map); };
-                centerMarker.addListener('click', infoWindowListener);
+                drawTyphoonArea(point);
+                drawTyphoonCenterMarker(point, typhoon.name);
             });
-        }); // ★★★ ここに不足していた閉じ括弧 `});` を追加 ★★★
+        });
         
-        // この部分は forEach ループの外に移動
         const isVisible = document.getElementById('toggleTyphoons').checked;
         toggleLayerVisibility(allTyphoonOverlays, isVisible);
     }
 
     /**
      * 【描画ヘルパー1】台風の進路予報線を描画
-     * @param {Array<Object>} points - 予報点の配列
      */
     function drawTyphoonPathLine(points) {
         const forecastPath = points.map(p => ({ lat: p.lat, lng: p.lng }));
@@ -800,49 +742,46 @@
     }
 
     /**
-     * 【描画ヘルパー2】台風の円（予報円・暴風域・強風域）やポリゴンを描画
-     * @param {Object} point - 予報点オブジェクト
+     * 【描画ヘルパー2】予報円、暴風域、強風域を描画
      */
-    function drawTyphoonCirclesAndPolygons(point) {
-        const isActual = point.type === '実況';
+    function drawTyphoonArea(point) {
         const center = { lat: point.lat, lng: point.lng };
-        
+        const isActual = point.type === '実況';
+
+        // 実況の場合のみ、暴風域・強風域を描画
         if (isActual) {
-            // 強風域 (ポリゴン優先、なければ円)
-            if (point.windArea) {
+            if (point.windArea) { // ポリゴン優先
                 point.windArea.forEach(coords => {
-                    const polygonPath = coords.map(c => ({ lat: c[1], lng: c[0] }));
-                    allTyphoonOverlays.push(new google.maps.Polygon({ paths: polygonPath, strokeColor: '#FFD700', strokeOpacity: 0.8, strokeWeight: 1.5, fillColor: '#FFD700', fillOpacity: 0.2, map: map }));
+                    const path = coords.map(c => ({ lat: c[1], lng: c[0] }));
+                    allTyphoonOverlays.push(new google.maps.Polygon({ paths: path, strokeColor: '#FFD700', strokeOpacity: 0.8, strokeWeight: 1.5, fillColor: '#FFD700', fillOpacity: 0.2, map: map }));
                 });
             } else if (point.windRadius > 0) {
                 allTyphoonOverlays.push(new google.maps.Circle({ strokeColor: '#FFD700', strokeOpacity: 0.8, strokeWeight: 1.5, fillColor: '#FFD700', fillOpacity: 0.2, map: map, center: center, radius: point.windRadius }));
             }
-            // 暴風域 (ポリゴン優先、なければ円)
-            if (point.stormArea) {
+
+            if (point.stormArea) { // ポリゴン優先
                 point.stormArea.forEach(coords => {
-                    const polygonPath = coords.map(c => ({ lat: c[1], lng: c[0] }));
-                    allTyphoonOverlays.push(new google.maps.Polygon({ paths: polygonPath, strokeColor: '#FF0000', strokeOpacity: 0.8, strokeWeight: 1.5, fillColor: '#FF0000', fillOpacity: 0.25, map: map }));
+                    const path = coords.map(c => ({ lat: c[1], lng: c[0] }));
+                    allTyphoonOverlays.push(new google.maps.Polygon({ paths: path, strokeColor: '#FF0000', strokeOpacity: 0.8, strokeWeight: 1.5, fillColor: '#FF0000', fillOpacity: 0.25, map: map }));
                 });
             } else if (point.stormRadius > 0) {
                 allTyphoonOverlays.push(new google.maps.Circle({ strokeColor: '#FF0000', strokeOpacity: 0.8, strokeWeight: 1.5, fillColor: '#FF0000', fillOpacity: 0.25, map: map, center: center, radius: point.stormRadius }));
             }
         }
-        // 予報円
+
+        // 予報の場合のみ、予報円を描画
         if (point.forecastRadius > 0) {
             allTyphoonOverlays.push(new google.maps.Circle({ strokeColor: '#FF6347', strokeOpacity: 0.8, strokeWeight: 1.5, fillColor: '#FF6347', fillOpacity: 0.15, map: map, center: center, radius: point.forecastRadius }));
         }
     }
 
     /**
-     * 【描画ヘルパー3】中心点マーカーと情報ウィンドウを作成
-     * @param {Object} point - 予報点オブジェクト
-     * @param {string} typhoonName - 台風名
+     * 【描画ヘルパー3】中心マーカーと情報ウィンドウを作成
      */
-    function createTyphoonInfoWindow(point, typhoonName) {
+    function drawTyphoonCenterMarker(point, typhoonName) {
         const isActual = point.type === '実況';
         const center = { lat: point.lat, lng: point.lng };
-        
-        const centerMarker = new google.maps.Marker({
+        const marker = new google.maps.Marker({
             position: center,
             map: map,
             icon: {
@@ -855,8 +794,8 @@
             },
             title: `${typhoonName} (${point.type})`
         });
-        allTyphoonOverlays.push(centerMarker);
-        
+        allTyphoonOverlays.push(marker);
+
         const date = new Date(point.time);
         const timeString = `${date.getMonth() + 1}月${date.getDate()}日${date.getHours()}時`;
         const contentString = `
@@ -867,10 +806,10 @@
             <strong>最大風速:</strong> ${point.maxWindSpeed || 'N/A'} m/s
           </div>`;
 
-        centerMarker.addListener('click', () => {
-          infoWindow.setContent(contentString);
-          infoWindow.setPosition(center);
-          infoWindow.open(map);
+        marker.addListener('click', () => {
+            infoWindow.setContent(contentString);
+            infoWindow.setPosition(center);
+            infoWindow.open(map);
         });
     }
 
