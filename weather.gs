@@ -574,3 +574,5 @@ function getJmaTimestampFromServer() {
 function getServerTime() {
   return new Date();
 }
+
+

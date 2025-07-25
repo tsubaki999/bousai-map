@@ -292,3 +292,4 @@ function parseDetailXml(detailDoc) {
     return null;
   }
 }
+
