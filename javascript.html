@@ -25,6 +25,7 @@
 
     // --- 自動更新ロジック ---
     function clearAllOverlays() {
+        clearAllRoutes();
         renderedRoutes.forEach(r => r.setMap(null));
         renderedRoutes = [];
         animationIntervals.forEach(clearInterval);
@@ -44,6 +45,13 @@
         allStoreMarkers = [];
         document.getElementById('warningsList').innerHTML = '';
         document.getElementById('affectedStoresList').innerHTML = '<li>情報を更新しています...</li>';
+    }
+
+    function clearAllRoutes() {
+        renderedRoutes.forEach(r => r.setMap(null));
+        renderedRoutes = [];
+        animationIntervals.forEach(clearInterval);
+        animationIntervals = [];
     }
 
     async function refreshAllData() {
@@ -111,14 +119,9 @@
       });
       document.getElementById('toggleRoutes').addEventListener('change', function(e) {
         if (e.target.checked) {
-            // チェックが入ったら、全ルートを描画
             drawFilteredRoutes(); 
         } else {
-            // チェックが外れたら、描画済みのルートをすべて消去
-            renderedRoutes.forEach(r => r.setMap(null));
-            renderedRoutes = [];
-            animationIntervals.forEach(clearInterval);
-            animationIntervals = [];
+            clearAllRoutes(); // チェックが外れたら、新しいクリア関数を呼ぶだけ
         }
       });
     }
