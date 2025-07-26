@@ -3,180 +3,592 @@
     var map, directionsService, infoWindow, geocoder;
     var allRoutes = [], renderedRoutes = [], animationIntervals = [], allStoreMarkers = [];
     var allWarningCircles = [], allEarthquakeCircles = [], allEarthquakeOverlays = [], allLspPolygons = [], allOutageMarkers = [], monogatariMarkers = [];
-    var allTyphoonOverlays = [];
-    var earthquakeAnimationIntervals = [];
     var radarUpdateInterval = null;
     var trafficLayer;
 
     // --- ユーティリティ関数 ---
-    function escapeHtml(str) { if (typeof str !== 'string' || !str) return ''; return str.replace(/[&<>"']/g, function(match) { return {'&': '&amp;','<': '&lt;','>': '&gt;','"': '&quot;',"'": '&#039;'}[match]; }); }
-    function togglePanel(header) { var content = header.nextElementSibling; var text = header.innerHTML; if (content.style.maxHeight && content.style.maxHeight !== '0px') { content.style.maxHeight = '0px'; header.innerHTML = text.replace('▴', '▾'); } else { content.style.maxHeight = content.scrollHeight + "px"; header.innerHTML = text.replace('▾', '▴'); } }
-    
-    // --- メインロジック ---
-    async function initMap() {
-      map = new google.maps.Map(document.getElementById("map"), { center: { lat: 36.2048, lng: 138.2529 }, zoom: 6, mapId: 'd9bbe126f7dc436f2b40c092' });
-      trafficLayer = new google.maps.TrafficLayer();
-      directionsService = new google.maps.DirectionsService();
-      infoWindow = new google.maps.InfoWindow();
-      geocoder = new google.maps.Geocoder();
-      setupLayerToggles();
-      await refreshAllData();
-      setInterval(() => {
-        document.getElementById('loader-overlay').classList.remove('hidden');
-        location.reload();
-      }, 5 * 60 * 1000);
+    function escapeHtml(str) {
+      if (typeof str !== 'string' || !str) return '';
+      return str.replace(/[&<>"']/g, function(match) { return {'&': '&amp;','<': '&lt;','>': '&gt;','"': '&quot;',"'": '&#039;'}[match]; });
+    }
+    function togglePanel(header) {
+      var content = header.nextElementSibling;
+      var text = header.innerHTML;
+      if (content.style.maxHeight && content.style.maxHeight !== '0px') {
+        content.style.maxHeight = '0px';
+        header.innerHTML = text.replace('▴', '▾');
+      } else {
+        content.style.maxHeight = content.scrollHeight + "px";
+        header.innerHTML = text.replace('▾', '▴');
+      }
+    }
+
+    // --- 自動更新ロジック ---
+    function clearAllOverlays() {
+        clearAllRoutes();
+        renderedRoutes.forEach(r => r.setMap(null));
+        renderedRoutes = [];
+        animationIntervals.forEach(clearInterval);
+        animationIntervals = [];
+        allWarningCircles.forEach(c => c.setMap(null));
+        allWarningCircles = [];
+        allEarthquakeCircles.forEach(c => c.setMap(null));
+        allEarthquakeCircles = [];
+        allEarthquakeOverlays.forEach(o => o.setMap(null));
+        allEarthquakeOverlays = [];
+        allLspPolygons.forEach(p => p.setMap(null));
+        allLspPolygons = [];
+        allOutageMarkers.forEach(m => m.setMap(null));
+        allOutageMarkers = [];
+        monogatariMarkers.forEach(m => m.marker.setMap(null));
+        monogatariMarkers = [];
+        allStoreMarkers = [];
+        document.getElementById('warningsList').innerHTML = '';
+        document.getElementById('affectedStoresList').innerHTML = '<li>情報を更新しています...</li>';
+    }
+
+    function clearAllRoutes() {
+        renderedRoutes.forEach(r => r.setMap(null));
+        renderedRoutes = [];
+        animationIntervals.forEach(clearInterval);
+        animationIntervals = [];
     }
 
     async function refreshAllData() {
         console.log(`[${new Date().toLocaleTimeString()}] データの更新を開始します...`);
+        // ★★★ 修正点: 更新開始時にローダーを再表示（自動更新時用）★★★
         const loader = document.getElementById('loader-overlay');
         loader.classList.remove('hidden');
         clearAllOverlays();
-        
-        const [routes, affectedStoresData] = await Promise.all([
+        const [routes, warnings, quakes, outages, lspData, monogatariStores] = await Promise.all([
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getRouteMapData()),
-            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getStoreImpacts())
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getWeatherWarningsFromSheet()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getEarthquakeDataFromSheet()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getPowerOutageDataFromMeraki()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getLineShapedPrecipitationFromSheet()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getMonogatariStores())
         ]);
-        
-        console.log("リスク評価結果の取得が完了しました。");
+        console.log("最新データの取得が完了しました。");
         allRoutes = routes;
-
         populateFilters(routes);
-        placeAffectedStoreMarkers(affectedStoresData);
-        
+        await placeMarkers();
+        //drawFilteredRoutes();
+        await placeMonogatariMarkers(monogatariStores);
+        loadWeatherWarnings(warnings);
+        placeEarthquakeMarkers(quakes);
+        placeMerakiOutageMarkers(outages);
+        if(lspData) {
+            placeLineShapedPrecipitationPolygons(lspData.polygons);
+            addLspTextToWarnings(lspData.texts);
+        }
+        placeWarningMarkers(warnings);
         document.getElementById('last-updated').textContent = '最終更新: ' + new Date().toLocaleTimeString();
-        console.log(`[${new Date().toLocaleTimeString()}] データ更新が完了しました。`);
+        console.log(`[${new Date().toLocaleTimeString()}] データの更新が完了しました。`);
         loader.classList.add('hidden');
     }
-    
-    function clearAllOverlays() {
-        renderedRoutes.forEach(r => r.setMap(null)); renderedRoutes = [];
-        animationIntervals.forEach(clearInterval); animationIntervals = [];
-        if(window.affectedStoreOverlays) affectedStoreOverlays.forEach(o => o.setMap(null));
-        affectedStoreOverlays = [];
-        document.getElementById('affectedStoresList').innerHTML = '<li>情報を更新しています...</li>';
-        const summaryList = document.getElementById('weatherWarnings').querySelector('ul');
-        if (summaryList) summaryList.innerHTML = '<li>情報を更新しています...</li>';
+
+    // --- 初期化処理 ---
+    async function initMap() {
+      map = new google.maps.Map(document.getElementById("map"), {
+          center: { lat: 36.2048, lng: 138.2529 }, zoom: 6,
+          mapId: 'd9bbe126f7dc436f2b40c092'
+      });
+      trafficLayer = new google.maps.TrafficLayer();
+      trafficLayer.setMap(map);
+      directionsService = new google.maps.DirectionsService();
+      infoWindow = new google.maps.InfoWindow();
+      geocoder = new google.maps.Geocoder();
+      setupLayerToggles();
+      setupRadarControls();
+      await refreshAllData();
+      setInterval(refreshAllData, 5 * 60 * 1000);
     }
 
-    // --- UI/イベント関連 ---
+    // --- イベントリスナー設定 ---
     function setupLayerToggles() {
-        document.getElementById('toggleRoutes').addEventListener('change', function(e) { if (e.target.checked) { drawFilteredRoutes(); } else { clearAllRoutes(); } });
-        document.getElementById('toggleTraffic').addEventListener('change', (e) => trafficLayer.setMap(e.target.checked ? map : null));
-    }
-    function populateFilters(data) { if(!data) return; var originSet = new Set(), destSet = new Set(); data.forEach(r => { originSet.add(r.originName); destSet.add(r.destinationName); }); var originSelect = document.getElementById('originSelect'); originSelect.innerHTML = '<option value="all">すべて</option>'; originSet.forEach(name => { var o = document.createElement('option'); o.value = name; o.textContent = name; originSelect.appendChild(o); }); var destSelect = document.getElementById('destinationSelect'); destSelect.innerHTML = '<option value="all">すべて</option>'; destSet.forEach(name => { var o = document.createElement('option'); o.value = name; o.textContent = name; destSelect.appendChild(o); }); }
-    
-    // --- 描画関数 ---
-    function placeAffectedStoreMarkers(affectedStores) {
-        const list = document.getElementById('affectedStoresList');
-        const summaryPanel = document.getElementById('weatherWarnings');
-        summaryPanel.querySelector('h3').innerHTML = 'リスクサマリー ▾';
-        const summaryList = summaryPanel.querySelector('ul');
-        
-        list.innerHTML = '';
-        summaryList.innerHTML = '';
-        
-        const scoreColors = { low: '#f1c40f', medium: '#e67e22', high: '#e74c3c' };
-
-        if (!affectedStores || affectedStores.length === 0) {
-            list.innerHTML = '<li>現在、深刻なリスクのある店舗はありません。</li>';
-            summaryList.innerHTML = '<li>すべての拠点は平常通りです。</li>';
-            return;
+      document.getElementById('originSelect').addEventListener('change', drawFilteredRoutes);
+      document.getElementById('destinationSelect').addEventListener('change', drawFilteredRoutes);
+      document.getElementById('toggleTraffic').addEventListener('change', function(e) { trafficLayer.setMap(e.target.checked ? map : null); });
+      document.getElementById('toggleWarnings').addEventListener('change', function(e) { toggleLayerVisibility(allWarningCircles, e.target.checked); checkStoreImpacts(); });
+      document.getElementById('toggleEarthquakes').addEventListener('change', function(e) { toggleLayerVisibility(allEarthquakeOverlays, e.target.checked); checkStoreImpacts(); });
+      document.getElementById('toggleLsp').addEventListener('change', function(e) { toggleLayerVisibility(allLspPolygons, e.target.checked); });
+      document.getElementById('toggleOutages').addEventListener('change', function(e) { toggleLayerVisibility(allOutageMarkers, e.target.checked); });
+      document.getElementById('toggleMonogatariStores').addEventListener('change', function(e) {
+          var markers = monogatariMarkers.map(function(m) { return m.marker; });
+          toggleLayerVisibility(markers, e.target.checked);
+      });
+      document.getElementById('toggleRoutes').addEventListener('change', function(e) {
+        if (e.target.checked) {
+            drawFilteredRoutes(); 
+        } else {
+            clearAllRoutes(); // チェックが外れたら、新しいクリア関数を呼ぶだけ
         }
+      });
+    }
 
-        let summaryText = '<strong>' + affectedStores.length + '件</strong> の店舗でリスクを検知。<br>最も高いリスクスコアは <strong>' + affectedStores[0].score + '</strong> です。';
-        summaryList.innerHTML = '<li style="padding: 5px;">' + summaryText + '</li>';
-        
-        affectedStores.forEach(store => {
-            const position = { lat: parseFloat(store.lat), lng: parseFloat(store.lng) };
-            let color = scoreColors.low;
-            if (store.score >= 60) color = scoreColors.high;
-            else if (store.score >= 40) color = scoreColors.medium;
-            
-            const riskMarker = new google.maps.marker.AdvancedMarkerElement({
-                position, map,
-                content: createRiskMarkerElement(color, store.score),
-                title: store.name + ' [Risk: ' + store.score + ']'
-            });
-            affectedStoreOverlays.push(riskMarker);
+    // --- 表示レイヤー関連の関数 ---
+    function toggleLayerVisibility(overlays, isVisible) {
+      var targetMap = isVisible ? map : null;
+      overlays.forEach(function(overlay) { if(overlay) overlay.setMap(targetMap); });
+    }
 
-            const li = document.createElement('li');
-            li.style.cssText = 'padding: 8px; cursor: default; border-left: 4px solid ' + color + '; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;';
-            const xSearchButton = createXSearchButton(store.address);
-            
-            const listItemHTML = 
-                '<div style="flex-grow: 1; cursor: pointer;" onclick="map.setCenter({lat:' + store.lat + ',lng:' + store.lng + '}); map.setZoom(14);">' +
-                    '<strong style="color:' + color + ';">[Risk: ' + store.score + ']</strong> ' +
-                    '<span>' + escapeHtml(store.name) + '</span><br>' +
-                    '<small style="color: #666; font-size: 11px;">要因: ' + escapeHtml(store.factors) + '</small>' +
-                '</div>' + xSearchButton;
-            li.innerHTML = listItemHTML;
-            list.appendChild(li);
-            
-            riskMarker.addListener('gmp-click', () => {
-                infoWindow.setContent(listItemHTML);
-                infoWindow.open({map, anchor: riskMarker});
+    function setupRadarControls() {
+        var toggle = document.getElementById('toggleRadar');
+        var slider = document.getElementById('radarOpacitySlider');
+        var currentRadarLayer = null;
+        function removeCurrentRadarLayer() { if (currentRadarLayer) { map.overlayMapTypes.removeAt(map.overlayMapTypes.getArray().indexOf(currentRadarLayer)); currentRadarLayer = null; } }
+        function updateRadar() {
+            var date = new Date();
+            var minutes = date.getMinutes();
+            var roundedMinutes = Math.floor(minutes / 5) * 5;
+            date.setMinutes(roundedMinutes, 0, 0);
+            var year = date.getUTCFullYear(), month = ('0' + (date.getUTCMonth() + 1)).slice(-2), day = ('0' + date.getUTCDate()).slice(-2), hours = ('0' + date.getUTCHours()).slice(-2), mins = ('0' + date.getUTCMinutes()).slice(-2);
+            var timestamp = "" + year + month + day + hours + mins + "00";
+            removeCurrentRadarLayer();
+            var opacity = parseFloat(slider.value);
+            currentRadarLayer = new google.maps.ImageMapType({ getTileUrl: function(c, z) { if (z < 3 || z > 11) return null; return "https://www.jma.go.jp/bosai/jmatile/data/nowc/"+timestamp+"/none/"+timestamp+"/surf/hrpns/"+z+"/"+c.x+"/"+c.y+".png"; }, tileSize: new google.maps.Size(256, 256), isPng: true, name: "Rain Radar", opacity: opacity, minZoom: 3, maxZoom: 11 });
+            map.overlayMapTypes.push(currentRadarLayer);
+        }
+        toggle.addEventListener('change', function() {
+            if (this.checked) {
+                slider.style.display = 'inline-block'; updateRadar();
+                if (!radarUpdateInterval) { radarUpdateInterval = setInterval(updateRadar, 5 * 60 * 1000); }
+            } else {
+                slider.style.display = 'none'; removeCurrentRadarLayer();
+                if (radarUpdateInterval) { clearInterval(radarUpdateInterval); radarUpdateInterval = null; }
+            }
+        });
+        slider.addEventListener('input', function() { if (currentRadarLayer) currentRadarLayer.setOpacity(parseFloat(this.value)); });
+    }
+
+    // --- マーカーコンテンツ生成ヘルパー ---
+    function createPinMarkerContent() {
+        var markerContent = document.createElement('div');
+        markerContent.style.cursor = 'pointer';
+        markerContent.className = 'pin-marker-content';
+        var pinContainer = document.createElement('div');
+        pinContainer.style.cssText = 'position: relative; width: 28px; height: 40px; transform: translate(-50%, -100%);';
+        var pinBody = document.createElement('div');
+        pinBody.style.cssText = 'position: absolute; left: 0; top: 0; width: 28px; height: 28px; border-radius: 50% 50% 50% 0; background: #EA4335; transform: rotate(-45deg); border: 1px solid #C62828;';
+        pinContainer.appendChild(pinBody);
+        var pinHead = document.createElement('div');
+        pinHead.style.cssText = 'position: absolute; left: 7px; top: 7px; width: 14px; height: 14px; border-radius: 50%; background: white;';
+        pinContainer.appendChild(pinHead);
+        markerContent.appendChild(pinContainer);
+        return markerContent;
+    }
+
+    // --- 物語コーポレーション店舗マーカー設置 ---
+    function placeMonogatariMarkers(stores) {
+        return new Promise(function(resolve) {
+            if (!stores || stores.length === 0) { resolve(); return; }
+            var geocodingPromises = stores.map(function(store) {
+                return new Promise(function(pResolve) {
+                    geocoder.geocode({ 'address': store.address }, function(results, status) {
+                        if (status === 'OK' && results[0]) {
+                            var marker = new google.maps.marker.AdvancedMarkerElement({ map: map, position: results[0].geometry.location, content: createPinMarkerContent(), title: store.name });
+                            monogatariMarkers.push({ marker: marker, name: store.name, address: store.address });
+                            marker.addListener("gmp-click", function() {
+                                var content = `<div style="font-family: sans-serif; font-size: 14px; max-width: 280px;"><strong style="font-size: 16px;">${escapeHtml(store.name)}</strong><br><strong>住所:</strong> ${escapeHtml(store.address)}<br><a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(store.address)}" target="_blank">Googleマップで見る</a></div>`;
+                                infoWindow.setContent(content);
+                                infoWindow.open({ anchor: marker, map: map });
+                            });
+                            toggleLayerVisibility([marker], document.getElementById('toggleMonogatariStores').checked);
+                        } else { console.error('ジオコーディング失敗: ' + store.name + ' - ' + status); }
+                        pResolve();
+                    });
+                });
             });
+            Promise.all(geocodingPromises).then(resolve);
         });
     }
 
-    function createRiskMarkerElement(color, score) {
-        const container = document.createElement('div');
-        container.style.cssText = 'position: relative; width: 32px; height: 32px; display: flex; justify-content: center; align-items: center; cursor: pointer;';
-        const pulseCircle = document.createElement('div');
-        pulseCircle.style.cssText = 'position: absolute; width: 100%; height: 100%; border-radius: 50%; background-color: ' + color + '; animation: pulse 1.5s infinite ease-out;';
-        const centerCircle = document.createElement('div');
-        centerCircle.style.cssText = 'position: relative; width: 70%; height: 70%; background: #fff; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 10px; font-weight: bold; color: #333;';
-        centerCircle.textContent = score;
-        container.appendChild(pulseCircle);
-        container.appendChild(centerCircle);
+    // --- 災害情報、配送ルート、その他マーカーの設置 ---
+    function getWarningStyle(title) {
+        if (!title) return { color: '#888888', level: 0, impactLevel: 0, name: '情報' };
+        if (title.includes('特別警報')) return { color: '#800080', level: 5, impactLevel: 10, name: '【特別警報】' };
+        if (title.includes('土砂災害警戒情報')) return { color: '#FF00FF', level: 4, impactLevel: 8, name: '【土砂災害警戒】' };
+        if (title.includes('警報')) return { color: '#FF0000', level: 3, impactLevel: 6, name: '【警報】' };
+        if (title.includes('注意報')) return { color: '#FFFF00', level: 2, impactLevel: 4, name: '【注意報】' };
+        return { color: '#888888', level: 1, impactLevel: 2, name: '早期注意情報' };
+    }
+
+    function placeWarningMarkers(warnings) {
+        if (!warnings || warnings.length === 0) { checkStoreImpacts(); return; }
+        warnings.forEach(function(w) {
+            var lat = parseFloat(w.lat), lng = parseFloat(w.lng); if (isNaN(lat) || isNaN(lng)) return;
+            var style = getWarningStyle(w.title);
+            var circle = new google.maps.Circle({ map: map, center: { lat: lat, lng: lng }, radius: 20000, fillColor: style.color, fillOpacity: 0.25, strokeColor: style.color, strokeOpacity: 0.5, strokeWeight: 1 });
+            circle.warningStyle = style;
+            allWarningCircles.push(circle);
+            circle.addListener('click', function() {
+                var a_content = `<strong style="color:${style.color};">${escapeHtml(w.title)}</strong><br><strong>地域:</strong> ${escapeHtml(w.region)}<br><strong>内容:</strong> ${escapeHtml(w.summary)}<br><a href="${escapeHtml(w.link)}" target="_blank">詳細(気象庁)</a><br><strong>発表:</strong> ${new Date(w.time).toLocaleString()}`;
+                infoWindow.setContent(a_content); infoWindow.setPosition({ lat: lat, lng: lng }); infoWindow.open(map);
+            });
+        });
+        toggleLayerVisibility(allWarningCircles, document.getElementById('toggleWarnings').checked);
+        checkStoreImpacts();
+    }
+
+    function placeMerakiOutageMarkers(outages) {
+        if (!outages || outages.length === 0) return;
+        var iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24"><defs><filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2" result="coloredBlur"/><feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><circle cx="12" cy="12" r="10" fill="#212121"/><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#D32F2F" stroke="#F44336" stroke-width="0.5" style="filter:url(#glow)"/></svg>';
+        outages.forEach(function(o) {
+            var lat = parseFloat(o.lat), lng = parseFloat(o.lng); if (isNaN(lat) || isNaN(lng)) return;
+            var markerContent = document.createElement('div'); markerContent.innerHTML = iconSvg; markerContent.style.cursor = 'pointer';
+            var marker = new google.maps.marker.AdvancedMarkerElement({ map: map, position: { lat: lat, lng: lng }, content: markerContent, title: o.storeName + ' (スイッチDOWN)' });
+            allOutageMarkers.push(marker);
+            marker.addListener('gmp-click', function() {
+                var content = `<div style="font-family: sans-serif; font-size: 14px; max-width: 280px;"><strong style="font-size: 16px; color: #D32F2F;">🚨 MerakiスイッチDOWN (停電の可能性)</strong><br><strong>店舗名:</strong> ${escapeHtml(o.storeName)}<br><strong>住所:</strong> ${escapeHtml(o.address)}<br><strong>最終確認時刻:</strong> ${(o.lastSeen ? new Date(o.lastSeen).toLocaleString() : '不明')}<br><small style="color: #757575;">この情報はMerakiネットワーク機器の疎通断を検知したものです。</small></div>`;
+                infoWindow.setContent(content); infoWindow.open({ anchor: marker, map: map });
+            });
+        });
+        toggleLayerVisibility(allOutageMarkers, document.getElementById('toggleOutages').checked);
+    }
+    
+    function convertIntensityToString(intensity) {
+        if (intensity >= 7.0) return '7'; if (intensity >= 6.5) return '6強'; if (intensity >= 6.0) return '6弱';
+        if (intensity >= 5.5) return '5強'; if (intensity >= 5.0) return '5弱'; if (intensity >= 4.0) return '4';
+        if (intensity >= 3.0) return '3'; if (intensity >= 2.0) return '2'; if (intensity >= 1.0) return '1'; return '不明';
+    }
+
+    function getEarthquakeStyle(intensity) {
+        const intensityString = convertIntensityToString(intensity); const name = `震度 ${intensityString}`;
+        if (intensity >= 7.0) return { color: '#800080', textColor: '#FFFFFF', scale: 25, impactLevel: 11, name: name };
+        if (intensity >= 6.5) return { color: '#d9333f', textColor: '#FFFFFF', scale: 22, impactLevel: 9, name: name };
+        if (intensity >= 6.0) return { color: '#ff4500', textColor: '#FFFFFF', scale: 20, impactLevel: 9, name: name };
+        if (intensity >= 5.5) return { color: '#ff8c00', textColor: '#FFFFFF', scale: 18, impactLevel: 7, name: name };
+        if (intensity >= 5.0) return { color: '#ffc400', textColor: '#000000', scale: 15, impactLevel: 7, name: name };
+        if (intensity >= 4.0) return { color: '#00bfff', textColor: '#FFFFFF', scale: 10, impactLevel: 5, name: name };
+        if (intensity >= 3.0) return { color: '#90ee90', textColor: '#000000', scale: 8,  impactLevel: 3, name: name };
+        return { color: '#d3d3d3', textColor: '#000000', scale: 5, impactLevel: 1, name: name };
+    }
+
+    function createEarthquakeMarkerContent(intensity) {
+        const style = getEarthquakeStyle(intensity); const intensityText = convertIntensityToString(intensity);
+        const container = document.createElement('div'); container.style.position = 'relative'; container.style.width = '40px'; container.style.height = '40px';
+        const rippleEl = document.createElement('div');
+        rippleEl.style.cssText = `position: absolute; top: 50%; left: 50%; width: 40px; height: 40px; border-radius: 50%; background-color: ${style.color}; transform: translate(-50%, -50%); animation: ripple 1.5s infinite ease-out;`;
+        const markerEl = document.createElement('div');
+        markerEl.style.cssText = `position: absolute; top: 50%; left: 50%; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 50%; background-color: ${style.color}; color: ${style.textColor}; font-size: 14px; font-weight: bold; border: 2px solid #ffffff; box-shadow: 0 2px 4px rgba(0,0,0,0.5); cursor: pointer; transform: translate(-50%, -50%);`;
+        markerEl.textContent = intensityText;
+        container.appendChild(rippleEl); container.appendChild(markerEl);
+        if (!document.getElementById('earthquake-ripple-style')) {
+            const styleSheet = document.createElement("style"); styleSheet.id = 'earthquake-ripple-style'; styleSheet.type = "text/css";
+            styleSheet.innerText = `@keyframes ripple { 0% { transform: translate(-50%, -50%) scale(0.8); opacity: 1; } 100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; } }`;
+            document.head.appendChild(styleSheet);
+        }
         return container;
     }
 
-    function createXSearchButton(address) {
-        if (!address) return '';
-        const addressParts = address.match(/(([^都]*)都)?(([^府]*)府)?(([^県]*)県)?([^市]*)市([^区]*)区?(.*)/);
-        let searchQuery = "";
-        if(addressParts) {
-            const city = addressParts[7] ? addressParts[7] + "市" : "";
-            const ward = addressParts[9] ? addressParts[9] + "区" : "";
-            searchQuery = ward || city;
-        }
-        if (searchQuery) {
-            const xQuery = encodeURIComponent(searchQuery + ' (停電 OR 断水 OR 冠水 OR 避難 OR 災害 OR 運転見合わせ)');
-            const xSearchUrl = 'https://twitter.com/search?q=' + xQuery + '&f=live';
-            return '<a href="' + xSearchUrl + '" target="_blank" style="margin-left: 10px; padding: 4px 8px; background-color: #000; color: #fff; text-decoration: none; border-radius: 12px; font-size: 10px; font-weight:bold;">X</a>';
-        }
-        return '';
+    function placeEarthquakeMarkers(quakes) {
+      if (!quakes || quakes.length === 0) return;
+      quakes.forEach(function(q) {
+        const lat = parseFloat(q.lat), lng = parseFloat(q.lng); if (isNaN(lat) || isNaN(lng)) return;
+        const position = { lat: lat, lng: lng }; const intensity = parseFloat(q.maxIntensity); const style = getEarthquakeStyle(intensity);
+        const circle = new google.maps.Circle({ strokeColor: style.color, strokeOpacity: 0.5, strokeWeight: 1, fillColor: style.color, fillOpacity: 0.2, map: map, center: position, radius: style.scale * 15000, zIndex: 99 });
+        circle.quakeStyle = style; allEarthquakeCircles.push(circle);
+        const marker = new google.maps.marker.AdvancedMarkerElement({ position: position, map: map, content: createEarthquakeMarkerContent(intensity), title: q.title, zIndex: 100 });
+        allEarthquakeOverlays.push(circle, marker);
+        const infoContent = `<strong>${escapeHtml(q.title)}</strong><br>最大震度: ${convertIntensityToString(intensity)}<br>${escapeHtml(q.content)}<br><a href="${escapeHtml(q.detailLink)}" target="_blank">詳細情報</a>`;
+        marker.addListener('gmp-click', () => { infoWindow.setContent(infoContent); infoWindow.open({ anchor: marker, map: map }); });
+        circle.addListener('click', () => { infoWindow.setContent(infoContent); infoWindow.setPosition(position); infoWindow.open(map); });
+      });
+      toggleLayerVisibility(allEarthquakeOverlays, document.getElementById('toggleEarthquakes').checked);
+    }
+    
+    function placeLineShapedPrecipitationPolygons(polygons) {
+      if (!polygons || polygons.length === 0) return;
+      polygons.forEach(function(area) {
+        var polygonPath = area.coordinates[0].map(function(coord) { return { lat: coord[1], lng: coord[0] }; });
+        var lspPolygon = new google.maps.Polygon({ paths: polygonPath, strokeColor: "#FF00FF", strokeOpacity: 0.8, strokeWeight: 2, fillColor: "#FF00FF", fillOpacity: 0.35, map: map, zIndex: 90 });
+        allLspPolygons.push(lspPolygon);
+        lspPolygon.addListener('click', function(event) {
+          var content = `<strong style="color:#FF00FF;">【警戒レベル4相当】線状降水帯発生情報</span></strong><br><strong>エリア:</strong> ${escapeHtml(area.name)}<br><strong>発表時刻:</strong> ${new Date(area.time).toLocaleString()}`;
+          infoWindow.setContent(content); infoWindow.setPosition(event.latLng); infoWindow.open(map);
+        });
+      });
+      toggleLayerVisibility(allLspPolygons, document.getElementById('toggleLsp').checked);
     }
 
-    function drawFilteredRoutes() {
-        if(!allRoutes) return;
-        clearAllRoutes();
-        let delay = 0;
-        allRoutes.forEach(route => {
-            setTimeout(() => {
-                var waypointsForRequest = (route.waypoints || []).map(w => ({ location: w.address, stopover: true }));
-                directionsService.route({ origin: route.origin, destination: route.destination, waypoints: waypointsForRequest, travelMode: 'DRIVING', drivingOptions: { departureTime: new Date(), trafficModel: 'bestguess' }}, (result, status) => { if (status === 'OK') drawAnimatedRoute(result, route); else console.error('ルート取得失敗:', status, '対象:', route.originName + ' -> ' + route.destinationName); });
-            }, delay);
-            delay += 100;
+    function loadWeatherWarnings(warnings) {
+      var ul = document.getElementById('warningsList');
+      if (!Array.isArray(warnings) || warnings.length === 0) { var li = document.createElement('li'); li.textContent = '現在、発表されている警報・注意報はありません。'; ul.appendChild(li); return; }
+      warnings.forEach(function(w) {
+        var li = document.createElement('li'); li.style.marginBottom = '8px';
+        var style = getWarningStyle(w.title);
+        li.innerHTML = `<strong style="color:${style.color};">${escapeHtml(w.title)} (${(w.region||'地域不明')})</strong><br><small>${(w.time ? new Date(w.time).toLocaleString() : '時刻不明')}</small><br><small>${(w.summary||'詳細情報なし')}</small>`;
+        ul.appendChild(li);
+      });
+    }
+
+    function placeMarkers() {
+        return new Promise(function(resolve) {
+            var locationMap = new Map();
+            allRoutes.forEach(function(route) {
+                if (!locationMap.has(route.origin)) locationMap.set(route.origin, { name: route.originName, type: "base" });
+                if (route.waypoints) route.waypoints.forEach(function(w) { if (!locationMap.has(w.address)) locationMap.set(w.address, { name: w.name, type: "store" }); });
+                if (!locationMap.has(route.destination)) locationMap.set(route.destination, { name: route.destinationName, type: "store" });
+            });
+            var geocodingPromises = Array.from(locationMap.entries()).map(function(entry) {
+                return new Promise(function(pResolve) {
+                    geocoder.geocode({ address: entry[0] }, function(results, status) {
+                        if (status === 'OK' && results[0] && entry[1].type === 'store') {
+                           allStoreMarkers.push({ marker: { position: results[0].geometry.location, content: null }, name: entry[1].name });
+                        }
+                        pResolve();
+                    });
+                });
+            });
+            Promise.all(geocodingPromises).then(resolve);
         });
     }
+    
+    // ★★★ 修正された影響判定関数 ★★★
+    function checkStoreImpacts() {
+        const list = document.getElementById('affectedStoresList');
+        list.innerHTML = '';
+        let affectedStoresForList = [];
+        const allCheckableStores = allStoreMarkers.concat(monogatariMarkers);
 
+        // ★★★ 修正点1: 判定の閾値を設定 ★★★
+        const MIN_IMPACT_LEVEL_FOR_HIGHLIGHT = 6; // 警報（レベル3）のimpactLevelは6
+
+        allCheckableStores.forEach(store => {
+            if (!store || !store.marker || !store.marker.position) return;
+            const impacts = [];
+            allWarningCircles.forEach(circle => { if (circle.getMap() && google.maps.geometry.spherical.computeDistanceBetween(store.marker.position, circle.getCenter()) <= circle.getRadius()) { impacts.push({ type: 'warning', style: circle.warningStyle }); } });
+            allEarthquakeCircles.forEach(circle => { if (circle.getMap() && google.maps.geometry.spherical.computeDistanceBetween(store.marker.position, circle.getCenter()) <= circle.getRadius()) { const distance = google.maps.geometry.spherical.computeDistanceBetween(store.marker.position, circle.getCenter()); impacts.push({ type: 'quake', style: circle.quakeStyle, distance: distance, radius: circle.getRadius() }); } });
+
+            const markerContent = store.marker.content;
+
+            if (impacts.length > 0) {
+                impacts.sort((a, b) => b.style.impactLevel - a.style.impactLevel);
+                const highestImpact = impacts[0];
+                
+                // ★★★ 修正点2: 影響レベルが閾値以上かチェック ★★★
+                if (highestImpact.style.impactLevel >= MIN_IMPACT_LEVEL_FOR_HIGHLIGHT) {
+                    let distance = (highestImpact.type === 'quake') ? highestImpact.distance : null;
+                    affectedStoresForList.push({
+                        name: store.name,
+                        address: store.address || '',
+                        level: highestImpact.style.impactLevel,
+                        color: highestImpact.style.color,
+                        text: highestImpact.style.name,
+                        distance: distance,
+                        store: store
+                    });
+
+                    if (markerContent) {
+                        let finalColor = highestImpact.style.color;
+                        if (highestImpact.type === 'quake' && highestImpact.style.endColor) {
+                            const factor = highestImpact.distance / highestImpact.radius;
+                            const startRgb = hexToRgb(highestImpact.style.color);
+                            const endRgb = hexToRgb(highestImpact.style.endColor);
+                            finalColor = interpolateColor(startRgb, endRgb, factor);
+                        }
+                        if (markerContent.classList.contains('pin-marker-content')) {
+                            const newLabel = document.createElement('div');
+                            newLabel.className = 'warning-label';
+                            newLabel.style.backgroundColor = finalColor;
+                            newLabel.style.color = highestImpact.style.textColor || ((highestImpact.style.impactLevel < 5) ? '#000' : '#fff'); // 震度4以下は黒文字
+                            newLabel.textContent = store.name;
+                            store.marker.content = newLabel;
+                        } else if (markerContent.classList.contains('warning-label')) {
+                            markerContent.style.backgroundColor = finalColor;
+                        }
+                    }
+                } else {
+                    // 影響レベルが閾値未満の場合は、元のマーカーに戻す
+                    if (markerContent && markerContent.classList.contains('warning-label')) {
+                        store.marker.content = createPinMarkerContent();
+                    }
+                }
+            } else {
+                // 影響が全くない場合は、元のマーカーに戻す
+                if (markerContent && markerContent.classList.contains('warning-label')) {
+                    store.marker.content = createPinMarkerContent();
+                }
+            }
+        });
+
+        affectedStoresForList.sort((a, b) => b.level - a.level);
+        
+        // ★★★ 修正点3: リストが0件の場合のメッセージを変更 ★★★
+        if (affectedStoresForList.length === 0) {
+            list.innerHTML = '<li>現在、警戒レベル3以上の影響を受けている店舗はありません。</li>';
+        } else {
+            affectedStoresForList.forEach(item => {
+                const li = document.createElement('li');
+                li.style.cssText = `padding: 8px; cursor: default; border-left: 4px solid ${item.color}; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;`;
+
+                let xSearchButton = '';
+                if (item.address) {
+                    const addressParts = item.address.match(/(([^都]*)都)?(([^府]*)府)?(([^県]*)県)?([^市]*)市([^区]*)区?(.*)/);
+                    let searchQuery = "";
+                    if(addressParts) {
+                        const city = addressParts[7] ? addressParts[7] + "市" : "";
+                        const ward = addressParts[9] ? addressParts[9] + "区" : "";
+                        searchQuery = ward || city;
+                    }
+                    if (searchQuery) {
+                        const xQuery = encodeURIComponent(`${searchQuery} (停電 OR 断水 OR 冠水 OR 避難 OR 災害 OR 運転見合わせ)`);
+                        const xSearchUrl = `https://twitter.com/search?q=${xQuery}&f=live`;
+                        xSearchButton = `<a href="${xSearchUrl}" target="_blank" style="margin-left: 10px; padding: 4px 8px; background-color: #000; color: #fff; text-decoration: none; border-radius: 12px; font-size: 10px; font-weight:bold;">X</a>`;
+                    }
+                }
+
+                const distanceText = item.distance !== null ? ` (震源から約${(item.distance / 1000).toFixed(1)}km)` : '';
+
+                li.innerHTML = `
+                    <div style="flex-grow: 1; cursor: pointer;" onclick="map.setCenter({lat:${item.store.marker.position.lat},lng:${item.store.marker.position.lng}}); map.setZoom(14);">
+                        <span style="color:${item.color}; font-weight: bold;">${escapeHtml(item.text)}</span>
+                        <span>${escapeHtml(item.name)}${distanceText}</span>
+                    </div>
+                    ${xSearchButton}
+                `;
+                list.appendChild(li);
+            });
+        }
+    }
+    /*
+    function checkStoreImpacts() {
+        var list = document.getElementById('affectedStoresList'); list.innerHTML = '';
+        var affectedStoresForList = [];
+        var allCheckableStores = allStoreMarkers.concat(monogatariMarkers);
+
+        allCheckableStores.forEach(function(store) {
+            if (!store || !store.marker || !store.marker.position) return;
+            
+            const affectingWarningCircles = allWarningCircles.filter(c => c.getMap() != null && google.maps.geometry.spherical.computeDistanceBetween(store.marker.position, c.getCenter()) <= c.getRadius());
+            const affectingQuakeCircles = allEarthquakeCircles.filter(c => c.getMap() != null && google.maps.geometry.spherical.computeDistanceBetween(store.marker.position, c.getCenter()) <= c.getRadius());
+            const allAffectingCircles = [].concat(affectingWarningCircles, affectingQuakeCircles);
+            
+            var markerContent = store.marker.content;
+            
+            if (allAffectingCircles.length > 0) {
+                let highestImpactStyle = null;
+                let maxImpactLevel = -1;
+
+                allAffectingCircles.forEach(circle => {
+                    const style = circle.warningStyle || circle.quakeStyle;
+                    if (style && style.impactLevel > maxImpactLevel) {
+                        maxImpactLevel = style.impactLevel;
+                        highestImpactStyle = style;
+                    }
+                });
+
+                if (highestImpactStyle) {
+                    affectedStoresForList.push({ name: store.name, level: maxImpactLevel, color: highestImpactStyle.color, text: highestImpactStyle.name, store: store });
+                    
+                    // マーカーの見た目の変更は、contentが存在する場合（＝表示中のマーカー）のみ行う
+                    if (markerContent && markerContent.classList.contains('pin-marker-content')) {
+                        var newLabel = document.createElement('div');
+                        newLabel.className = 'warning-label';
+                        newLabel.style.backgroundColor = highestImpactStyle.color;
+                        const textColor = highestImpactStyle.textColor || ((highestImpactStyle.level === 2) ? '#000' : '#fff');
+                        newLabel.style.color = textColor;
+                        newLabel.textContent = store.name;
+                        store.marker.content = newLabel;
+                    }
+                }
+            } else {
+                // 影響がなくなった場合、contentが存在する場合のみ元のマーカーに戻す
+                if (markerContent && markerContent.classList.contains('warning-label')) {
+                    store.marker.content = createPinMarkerContent();
+                }
+            }
+        });
+
+        affectedStoresForList.sort((a, b) => b.level - a.level);
+        if (affectedStoresForList.length === 0) {
+            list.innerHTML = '<li>現在、影響を受けている店舗はありません。</li>';
+        } else {
+            affectedStoresForList.forEach(function(item) {
+                var li = document.createElement('li');
+                li.style.cssText = 'padding: 4px 0; cursor: pointer; border-left: 4px solid ' + item.color + '; padding-left: 8px; margin-bottom: 4px;';
+                li.innerHTML = `<span style="color:${item.color}; font-weight: bold;">${escapeHtml(item.text)}</span> ${escapeHtml(item.name)}`;
+                li.onmouseover = function() { this.style.backgroundColor = '#f5f5f5'; };
+                li.onmouseout = function() { this.style.backgroundColor = 'transparent'; };
+                li.onclick = function() { map.setCenter(item.store.marker.position); map.setZoom(14); };
+                list.appendChild(li);
+            });
+        }
+    }*/
+
+
+    function populateFilters(data) {
+      if(!data) return;
+      var originSet = new Set(), destSet = new Set();
+      data.forEach(r => { originSet.add(r.originName); destSet.add(r.destinationName); });
+      var originSelect = document.getElementById('originSelect'); originSelect.innerHTML = '<option value="all">すべて</option>';
+      originSet.forEach(name => { var o = document.createElement('option'); o.value = name; o.textContent = name; originSelect.appendChild(o); });
+      var destSelect = document.getElementById('destinationSelect'); destSelect.innerHTML = '<option value="all">すべて</option>';
+      destSet.forEach(name => { var o = document.createElement('option'); o.value = name; o.textContent = name; destSelect.appendChild(o); });
+    }
+    function drawFilteredRoutes() {
+        if(!allRoutes) return;
+        
+        // 既存のルートをクリア
+        renderedRoutes.forEach(r => r.setMap(null));
+        renderedRoutes = [];
+        animationIntervals.forEach(clearInterval);
+        animationIntervals = [];
+
+        // ★★★ 3. フィルタリングロジックを微修正 ★★★
+        // （現状のままでも "すべて" が選択されているので問題ありませんが、より明確にします）
+        var originFilter = document.getElementById('originSelect').value;
+        var destFilter = document.getElementById('destinationSelect').value;
+        
+        // この関数が呼ばれた時点では、常に全ルートを描画対象とする
+        // (将来的にフィルタリングを復活させることも可能)
+        var filtered = allRoutes; 
+
+        let delay = 0;
+        filtered.forEach(route => {
+            setTimeout(() => {
+                var waypointsForRequest = (route.waypoints || []).map(w => ({ location: w.address, stopover: true }));
+                directionsService.route({ 
+                    origin: route.origin, 
+                    destination: route.destination, 
+                    waypoints: waypointsForRequest, 
+                    travelMode: 'DRIVING', 
+                    drivingOptions: { departureTime: new Date(), trafficModel: 'bestguess' }
+                }, (result, status) => { 
+                    if (status === 'OK') {
+                        drawAnimatedRoute(result, route); 
+                    } else {
+                        console.error('ルート取得失敗:', status, '対象:', route.originName + ' -> ' + route.destinationName); 
+                    }
+                });
+            }, delay);
+            delay += 100; // API負荷軽減のための遅延
+        }); 
+    }
     function drawAnimatedRoute(directionsResult, routeInfo) {
-        var route = directionsResult.routes[0], totalDistance = 0, totalDuration = 0; 
-        route.legs.forEach(leg => { totalDistance += leg.distance.value; totalDuration += (leg.duration_in_traffic ? leg.duration_in_traffic.value : leg.duration.value); }); 
-        var waypointsDisplay = routeInfo.waypoints && routeInfo.waypoints.length > 0 ? '<strong>経由地:</strong> ' + routeInfo.waypoints.map(wp => escapeHtml(wp.name)).join(' → ') + '<br>' : ''; 
-        var tooltipContent = '<div style="font-family: sans-serif; font-size: 14px; max-width: 300px; line-height: 1.6;"><strong style="font-size: 16px; color: #007bff;">ルート詳細</strong><hr style="margin: 4px 0;"><strong>出発地:</strong> ' + escapeHtml(routeInfo.originName) + '<br>' + waypointsDisplay + '<strong>目的地:</strong> ' + escapeHtml(routeInfo.destinationName) + '<hr style="margin: 4px 0;"><strong>総距離:</strong> ' + (totalDistance / 1000).toFixed(1) + ' km<br><strong>予測所要時間:</strong> ' + Math.round(totalDuration / 60) + ' 分</div>'; 
-        var basePolyline = new google.maps.Polyline({ path: route.overview_path, strokeColor: '#0099ff', strokeOpacity: 0.3, strokeWeight: 8, map: map }); 
-        var animatedPolyline = new google.maps.Polyline({ path: route.overview_path, strokeOpacity: 0, icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 3, fillColor: '#FF0000', fillOpacity: 0.8, strokeWeight: 1 }, offset: '0%' }], map: map }); 
-        basePolyline.addListener('click', e => { infoWindow.setContent(tooltipContent); infoWindow.setPosition(e.latLng); infoWindow.open(map); }); 
-        basePolyline.addListener('mouseover', () => { map.getDiv().style.cursor = 'pointer'; }); 
-        basePolyline.addListener('mouseout', () => { map.getDiv().style.cursor = ''; }); 
-        renderedRoutes.push(basePolyline, animatedPolyline); 
-        var count = 0; 
-        var interval = setInterval(() => { count = (count + 1) % 200; var icons = animatedPolyline.get('icons'); icons[0].offset = (count / 2) + '%'; animatedPolyline.set('icons', icons); }, 50); 
-        animationIntervals.push(interval); 
+      var route = directionsResult.routes[0], totalDistance = 0, totalDuration = 0;
+      route.legs.forEach(leg => { totalDistance += leg.distance.value; totalDuration += (leg.duration_in_traffic ? leg.duration_in_traffic.value : leg.duration.value); });
+      var waypointsDisplay = routeInfo.waypoints && routeInfo.waypoints.length > 0 ? `<strong>経由地:</strong> ${routeInfo.waypoints.map(wp => escapeHtml(wp.name)).join(' → ')}<br>` : '';
+      var tooltipContent = `<div style="font-family: sans-serif; font-size: 14px; max-width: 300px; line-height: 1.6;"><strong style="font-size: 16px; color: #007bff;">ルート詳細</strong><hr style="margin: 4px 0;"><strong>出発地:</strong> ${escapeHtml(routeInfo.originName)}<br>${waypointsDisplay}<strong>目的地:</strong> ${escapeHtml(routeInfo.destinationName)}<hr style="margin: 4px 0;"><strong>総距離:</strong> ${(totalDistance / 1000).toFixed(1)} km<br><strong>予測所要時間:</strong> ${Math.round(totalDuration / 60)} 分</div>`;
+      var basePolyline = new google.maps.Polyline({ path: route.overview_path, strokeColor: '#0099ff', strokeOpacity: 0.3, strokeWeight: 8, map: map });
+      var animatedPolyline = new google.maps.Polyline({ path: route.overview_path, strokeOpacity: 0, icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 3, fillColor: '#FF0000', fillOpacity: 0.8, strokeWeight: 1 }, offset: '0%' }], map: map });
+      basePolyline.addListener('click', e => { infoWindow.setContent(tooltipContent); infoWindow.setPosition(e.latLng); infoWindow.open(map); });
+      basePolyline.addListener('mouseover', () => { map.getDiv().style.cursor = 'pointer'; });
+      basePolyline.addListener('mouseout', () => { map.getDiv().style.cursor = ''; });
+      renderedRoutes.push(basePolyline, animatedPolyline);
+      var count = 0;
+      var interval = setInterval(() => { count = (count + 1) % 200; var icons = animatedPolyline.get('icons'); icons[0].offset = (count / 2) + '%'; animatedPolyline.set('icons', icons); }, 50);
+      animationIntervals.push(interval);
+    }
+    function addLspTextToWarnings(texts) {
+      if (!texts || texts.length === 0) return;
+      var ul = document.getElementById('warningsList');
+      texts.forEach(function(textInfo) {
+        var li = document.createElement('li');
+        li.style.cssText = 'margin-bottom: 8px; background: #fff0f5; padding: 5px; border-left: 4px solid #FF00FF;';
+        li.innerHTML = `<strong style="color:#FF00FF;">【警戒レベル4相当】線状降水帯情報: ${escapeHtml(textInfo.name)}</strong><br><small>発表: ${new Date(textInfo.time).toLocaleString()}</small>`;
+        if (ul.firstChild) ul.insertBefore(li, ul.firstChild); else ul.appendChild(li);
+      });
     }
 
     google.script.run.withSuccessHandler(function(apiKey) {
