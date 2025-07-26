@@ -1,20 +1,30 @@
 <script>
     // グローバル変数
     var map, directionsService, infoWindow, geocoder;
-    var allRoutes = [], renderedRoutes = [], animationIntervals = [];
-    var affectedStoreOverlays = []; // 影響店舗のオーバーレイを管理する新しい配列
+    var allRoutes = [], renderedRoutes = [], animationIntervals = [], allStoreMarkers = [];
+    var allWarningCircles = [], allEarthquakeCircles = [], allEarthquakeOverlays = [], allLspPolygons = [], allOutageMarkers = [], monogatariMarkers = [];
+    var allTyphoonOverlays = [];
+    var earthquakeAnimationIntervals = [];
+    var radarUpdateInterval = null;
+    var trafficLayer;
 
-    // --- ユーティリティ & UI 関数 ---
+    // --- ユーティリティ関数 ---
     function escapeHtml(str) { if (typeof str !== 'string' || !str) return ''; return str.replace(/[&<>"']/g, function(match) { return {'&': '&amp;','<': '&lt;','>': '&gt;','"': '&quot;',"'": '&#039;'}[match]; }); }
     function togglePanel(header) { var content = header.nextElementSibling; var text = header.innerHTML; if (content.style.maxHeight && content.style.maxHeight !== '0px') { content.style.maxHeight = '0px'; header.innerHTML = text.replace('▴', '▾'); } else { content.style.maxHeight = content.scrollHeight + "px"; header.innerHTML = text.replace('▾', '▴'); } }
-
-    // --- 自動更新ロジック ---
-    function clearAllOverlays() {
-        renderedRoutes.forEach(r => r.setMap(null)); renderedRoutes = [];
-        animationIntervals.forEach(clearInterval); animationIntervals = [];
-        affectedStoreOverlays.forEach(o => o.setMap(null)); affectedStoreOverlays = [];
-        document.getElementById('weatherWarnings').querySelector('ul').innerHTML = '<li>情報を更新しています...</li>';
-        document.getElementById('affectedStoresList').innerHTML = '<li>情報を更新しています...</li>';
+    
+    // --- メインロジック ---
+    async function initMap() {
+      map = new google.maps.Map(document.getElementById("map"), { center: { lat: 36.2048, lng: 138.2529 }, zoom: 6, mapId: 'd9bbe126f7dc436f2b40c092' });
+      trafficLayer = new google.maps.TrafficLayer();
+      directionsService = new google.maps.DirectionsService();
+      infoWindow = new google.maps.InfoWindow();
+      geocoder = new google.maps.Geocoder();
+      setupLayerToggles();
+      await refreshAllData();
+      setInterval(() => {
+        document.getElementById('loader-overlay').classList.remove('hidden');
+        location.reload();
+      }, 5 * 60 * 1000);
     }
 
     async function refreshAllData() {
@@ -23,7 +33,7 @@
         loader.classList.remove('hidden');
         clearAllOverlays();
         
-        const [routes, affectedStores] = await Promise.all([
+        const [routes, affectedStoresData] = await Promise.all([
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getRouteMapData()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getStoreImpacts())
         ]);
@@ -32,37 +42,31 @@
         allRoutes = routes;
 
         populateFilters(routes);
-        placeAffectedStoreMarkers(affectedStores);
+        placeAffectedStoreMarkers(affectedStoresData);
         
         document.getElementById('last-updated').textContent = '最終更新: ' + new Date().toLocaleTimeString();
         console.log(`[${new Date().toLocaleTimeString()}] データ更新が完了しました。`);
         loader.classList.add('hidden');
     }
-
-    // --- 初期化処理 ---
-    async function initMap() {
-        map = new google.maps.Map(document.getElementById("map"), { center: { lat: 36.2048, lng: 138.2529 }, zoom: 6, mapId: 'd9bbe126f7dc436f2b40c092' });
-        trafficLayer = new google.maps.TrafficLayer();
-        directionsService = new google.maps.DirectionsService();
-        infoWindow = new google.maps.InfoWindow();
-        geocoder = new google.maps.Geocoder();
-        setupLayerToggles();
-        await refreshAllData();
-        setInterval(() => {
-            document.getElementById('loader-overlay').classList.remove('hidden');
-            location.reload();
-        }, 5 * 60 * 1000);
+    
+    function clearAllOverlays() {
+        renderedRoutes.forEach(r => r.setMap(null)); renderedRoutes = [];
+        animationIntervals.forEach(clearInterval); animationIntervals = [];
+        if(window.affectedStoreOverlays) affectedStoreOverlays.forEach(o => o.setMap(null));
+        affectedStoreOverlays = [];
+        document.getElementById('affectedStoresList').innerHTML = '<li>情報を更新しています...</li>';
+        const summaryList = document.getElementById('weatherWarnings').querySelector('ul');
+        if (summaryList) summaryList.innerHTML = '<li>情報を更新しています...</li>';
     }
 
-    // --- イベントリスナー設定 ---
+    // --- UI/イベント関連 ---
     function setupLayerToggles() {
         document.getElementById('toggleRoutes').addEventListener('change', function(e) { if (e.target.checked) { drawFilteredRoutes(); } else { clearAllRoutes(); } });
         document.getElementById('toggleTraffic').addEventListener('change', (e) => trafficLayer.setMap(e.target.checked ? map : null));
-        // 個別の災害レイヤーのトグルは、リスク評価モデルでは不要になるためコメントアウト
-        // document.getElementById('toggleWarnings').addEventListener('change', (e) => { /* ... */ });
     }
-
-    // --- 描画関連の関数 ---
+    function populateFilters(data) { if(!data) return; var originSet = new Set(), destSet = new Set(); data.forEach(r => { originSet.add(r.originName); destSet.add(r.destinationName); }); var originSelect = document.getElementById('originSelect'); originSelect.innerHTML = '<option value="all">すべて</option>'; originSet.forEach(name => { var o = document.createElement('option'); o.value = name; o.textContent = name; originSelect.appendChild(o); }); var destSelect = document.getElementById('destinationSelect'); destSelect.innerHTML = '<option value="all">すべて</option>'; destSet.forEach(name => { var o = document.createElement('option'); o.value = name; o.textContent = name; destSelect.appendChild(o); }); }
+    
+    // --- 描画関数 ---
     function placeAffectedStoreMarkers(affectedStores) {
         const list = document.getElementById('affectedStoresList');
         const summaryPanel = document.getElementById('weatherWarnings');
@@ -80,8 +84,8 @@
             return;
         }
 
-        let summaryText = `<strong>${affectedStores.length}件</strong> の店舗でリスクを検知。<br>最も高いリスクスコアは <strong>${affectedStores[0].score}</strong> です。`;
-        summaryList.innerHTML = `<li style="padding: 5px;">${summaryText}</li>`;
+        let summaryText = '<strong>' + affectedStores.length + '件</strong> の店舗でリスクを検知。<br>最も高いリスクスコアは <strong>' + affectedStores[0].score + '</strong> です。';
+        summaryList.innerHTML = '<li style="padding: 5px;">' + summaryText + '</li>';
         
         affectedStores.forEach(store => {
             const position = { lat: parseFloat(store.lat), lng: parseFloat(store.lng) };
@@ -90,29 +94,27 @@
             else if (store.score >= 40) color = scoreColors.medium;
             
             const riskMarker = new google.maps.marker.AdvancedMarkerElement({
-                position,
-                map,
+                position, map,
                 content: createRiskMarkerElement(color, store.score),
-                title: `${store.name} [Risk: ${store.score}]`
+                title: store.name + ' [Risk: ' + store.score + ']'
             });
             affectedStoreOverlays.push(riskMarker);
 
             const li = document.createElement('li');
-            li.style.cssText = `padding: 8px; cursor: default; border-left: 4px solid ${color}; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;`;
+            li.style.cssText = 'padding: 8px; cursor: default; border-left: 4px solid ' + color + '; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;';
             const xSearchButton = createXSearchButton(store.address);
-
-            const listItemHTML = `
-                <div style="flex-grow: 1; cursor: pointer;" onclick="map.setCenter({lat:${store.lat},lng:${store.lng}}); map.setZoom(14);">
-                    <strong style="color:${color};">[Risk: ${store.score}]</strong>
-                    <span>${escapeHtml(store.name)}</span><br>
-                    <small style="color: #666; font-size: 11px;">要因: ${escapeHtml(store.factors)}</small>
-                </div>
-                ${xSearchButton}`;
+            
+            const listItemHTML = 
+                '<div style="flex-grow: 1; cursor: pointer;" onclick="map.setCenter({lat:' + store.lat + ',lng:' + store.lng + '}); map.setZoom(14);">' +
+                    '<strong style="color:' + color + ';">[Risk: ' + store.score + ']</strong> ' +
+                    '<span>' + escapeHtml(store.name) + '</span><br>' +
+                    '<small style="color: #666; font-size: 11px;">要因: ' + escapeHtml(store.factors) + '</small>' +
+                '</div>' + xSearchButton;
             li.innerHTML = listItemHTML;
             list.appendChild(li);
             
             riskMarker.addListener('gmp-click', () => {
-                infoWindow.setContent(li.innerHTML);
+                infoWindow.setContent(listItemHTML);
                 infoWindow.open({map, anchor: riskMarker});
             });
         });
@@ -121,14 +123,11 @@
     function createRiskMarkerElement(color, score) {
         const container = document.createElement('div');
         container.style.cssText = 'position: relative; width: 32px; height: 32px; display: flex; justify-content: center; align-items: center; cursor: pointer;';
-        
         const pulseCircle = document.createElement('div');
-        pulseCircle.style.cssText = `position: absolute; width: 100%; height: 100%; border-radius: 50%; background-color: ${color}; animation: pulse 1.5s infinite ease-out;`;
-        
+        pulseCircle.style.cssText = 'position: absolute; width: 100%; height: 100%; border-radius: 50%; background-color: ' + color + '; animation: pulse 1.5s infinite ease-out;';
         const centerCircle = document.createElement('div');
         centerCircle.style.cssText = 'position: relative; width: 70%; height: 70%; background: #fff; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 10px; font-weight: bold; color: #333;';
         centerCircle.textContent = score;
-
         container.appendChild(pulseCircle);
         container.appendChild(centerCircle);
         return container;
@@ -144,18 +143,42 @@
             searchQuery = ward || city;
         }
         if (searchQuery) {
-            const xQuery = encodeURIComponent(`${searchQuery} (停電 OR 断水 OR 冠水 OR 避難 OR 災害 OR 運転見合わせ)`);
-            const xSearchUrl = `https://twitter.com/search?q=${xQuery}&f=live`;
-            return `<a href="${xSearchUrl}" target="_blank" style="margin-left: 10px; padding: 4px 8px; background-color: #000; color: #fff; text-decoration: none; border-radius: 12px; font-size: 10px; font-weight:bold;">X</a>`;
+            const xQuery = encodeURIComponent(searchQuery + ' (停電 OR 断水 OR 冠水 OR 避難 OR 災害 OR 運転見合わせ)');
+            const xSearchUrl = 'https://twitter.com/search?q=' + xQuery + '&f=live';
+            return '<a href="' + xSearchUrl + '" target="_blank" style="margin-left: 10px; padding: 4px 8px; background-color: #000; color: #fff; text-decoration: none; border-radius: 12px; font-size: 10px; font-weight:bold;">X</a>';
         }
         return '';
     }
 
-    function populateFilters(data) { if(!data) return; var originSet = new Set(), destSet = new Set(); data.forEach(r => { originSet.add(r.originName); destSet.add(r.destinationName); }); var originSelect = document.getElementById('originSelect'); originSelect.innerHTML = '<option value="all">すべて</option>'; originSet.forEach(name => { var o = document.createElement('option'); o.value = name; o.textContent = name; originSelect.appendChild(o); }); var destSelect = document.getElementById('destinationSelect'); destSelect.innerHTML = '<option value="all">すべて</option>'; destSet.forEach(name => { var o = document.createElement('option'); o.value = name; o.textContent = name; destSelect.appendChild(o); }); }
-    function drawFilteredRoutes() { if(!allRoutes) return; clearAllRoutes(); var filtered = allRoutes; let delay = 0; filtered.forEach(route => { setTimeout(() => { var waypointsForRequest = (route.waypoints || []).map(w => ({ location: w.address, stopover: true })); directionsService.route({ origin: route.origin, destination: route.destination, waypoints: waypointsForRequest, travelMode: 'DRIVING', drivingOptions: { departureTime: new Date(), trafficModel: 'bestguess' }}, (result, status) => { if (status === 'OK') drawAnimatedRoute(result, route); else console.error('ルート取得失敗:', status, '対象:', route.originName + ' -> ' + route.destinationName); }); }, delay); delay += 100; }); }
-    function drawAnimatedRoute(directionsResult, routeInfo) { var route = directionsResult.routes[0], totalDistance = 0, totalDuration = 0; route.legs.forEach(leg => { totalDistance += leg.distance.value; totalDuration += (leg.duration_in_traffic ? leg.duration_in_traffic.value : leg.duration.value); }); var waypointsDisplay = routeInfo.waypoints && routeInfo.waypoints.length > 0 ? '<strong>経由地:</strong> ' + routeInfo.waypoints.map(wp => escapeHtml(wp.name)).join(' → ') + '<br>' : ''; var tooltipContent = '<div style="font-family: sans-serif; font-size: 14px; max-width: 300px; line-height: 1.6;">' + '<strong style="font-size: 16px; color: #007bff;">ルート詳細</strong><hr style="margin: 4px 0;">' + '<strong>出発地:</strong> ' + escapeHtml(routeInfo.originName) + '<br>' + waypointsDisplay + '<strong>目的地:</strong> ' + escapeHtml(routeInfo.destinationName) + '<hr style="margin: 4px 0;">' + '<strong>総距離:</strong> ' + (totalDistance / 1000).toFixed(1) + ' km<br>' + '<strong>予測所要時間:</strong> ' + Math.round(totalDuration / 60) + ' 分</div>'; var basePolyline = new google.maps.Polyline({ path: route.overview_path, strokeColor: '#0099ff', strokeOpacity: 0.3, strokeWeight: 8, map: map }); var animatedPolyline = new google.maps.Polyline({ path: route.overview_path, strokeOpacity: 0, icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 3, fillColor: '#FF0000', fillOpacity: 0.8, strokeWeight: 1 }, offset: '0%' }], map: map }); basePolyline.addListener('click', e => { infoWindow.setContent(tooltipContent); infoWindow.setPosition(e.latLng); infoWindow.open(map); }); basePolyline.addListener('mouseover', () => { map.getDiv().style.cursor = 'pointer'; }); basePolyline.addListener('mouseout', () => { map.getDiv().style.cursor = ''; }); renderedRoutes.push(basePolyline, animatedPolyline); var count = 0; var interval = setInterval(() => { count = (count + 1) % 200; var icons = animatedPolyline.get('icons'); icons[0].offset = (count / 2) + '%'; animatedPolyline.set('icons', icons); }, 50); animationIntervals.push(interval); }
-    
-    // Google Maps APIの読み込み
+    function drawFilteredRoutes() {
+        if(!allRoutes) return;
+        clearAllRoutes();
+        let delay = 0;
+        allRoutes.forEach(route => {
+            setTimeout(() => {
+                var waypointsForRequest = (route.waypoints || []).map(w => ({ location: w.address, stopover: true }));
+                directionsService.route({ origin: route.origin, destination: route.destination, waypoints: waypointsForRequest, travelMode: 'DRIVING', drivingOptions: { departureTime: new Date(), trafficModel: 'bestguess' }}, (result, status) => { if (status === 'OK') drawAnimatedRoute(result, route); else console.error('ルート取得失敗:', status, '対象:', route.originName + ' -> ' + route.destinationName); });
+            }, delay);
+            delay += 100;
+        });
+    }
+
+    function drawAnimatedRoute(directionsResult, routeInfo) {
+        var route = directionsResult.routes[0], totalDistance = 0, totalDuration = 0; 
+        route.legs.forEach(leg => { totalDistance += leg.distance.value; totalDuration += (leg.duration_in_traffic ? leg.duration_in_traffic.value : leg.duration.value); }); 
+        var waypointsDisplay = routeInfo.waypoints && routeInfo.waypoints.length > 0 ? '<strong>経由地:</strong> ' + routeInfo.waypoints.map(wp => escapeHtml(wp.name)).join(' → ') + '<br>' : ''; 
+        var tooltipContent = '<div style="font-family: sans-serif; font-size: 14px; max-width: 300px; line-height: 1.6;"><strong style="font-size: 16px; color: #007bff;">ルート詳細</strong><hr style="margin: 4px 0;"><strong>出発地:</strong> ' + escapeHtml(routeInfo.originName) + '<br>' + waypointsDisplay + '<strong>目的地:</strong> ' + escapeHtml(routeInfo.destinationName) + '<hr style="margin: 4px 0;"><strong>総距離:</strong> ' + (totalDistance / 1000).toFixed(1) + ' km<br><strong>予測所要時間:</strong> ' + Math.round(totalDuration / 60) + ' 分</div>'; 
+        var basePolyline = new google.maps.Polyline({ path: route.overview_path, strokeColor: '#0099ff', strokeOpacity: 0.3, strokeWeight: 8, map: map }); 
+        var animatedPolyline = new google.maps.Polyline({ path: route.overview_path, strokeOpacity: 0, icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 3, fillColor: '#FF0000', fillOpacity: 0.8, strokeWeight: 1 }, offset: '0%' }], map: map }); 
+        basePolyline.addListener('click', e => { infoWindow.setContent(tooltipContent); infoWindow.setPosition(e.latLng); infoWindow.open(map); }); 
+        basePolyline.addListener('mouseover', () => { map.getDiv().style.cursor = 'pointer'; }); 
+        basePolyline.addListener('mouseout', () => { map.getDiv().style.cursor = ''; }); 
+        renderedRoutes.push(basePolyline, animatedPolyline); 
+        var count = 0; 
+        var interval = setInterval(() => { count = (count + 1) % 200; var icons = animatedPolyline.get('icons'); icons[0].offset = (count / 2) + '%'; animatedPolyline.set('icons', icons); }, 50); 
+        animationIntervals.push(interval); 
+    }
+
     google.script.run.withSuccessHandler(function(apiKey) {
       var script = document.createElement('script');
       script.src = 'https://maps.googleapis.com/maps/api/js?key=' + apiKey + '&libraries=marker,geometry,places&callback=initMap';
