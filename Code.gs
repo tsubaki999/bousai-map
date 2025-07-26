@@ -10,15 +10,15 @@ function include(filename) {
 
 /**
  * ウェブアプリのGETリクエストを処理する関数。
- * HTMLテンプレートを使用して、複数ファイルを結合します。
+ * HTMLテンプレートを使用して、複数ファイルを結合し、タイトルとファビコンを設定します。
  */
 function doGet(e) {
   var htmlOutput = HtmlService.createTemplateFromFile('map').evaluate()
-      .setTitle('物語防災マップ(アルファ版)')
+      .setTitle('物語防災マップ')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
       
-  var faviconUrl = 'https://cdn-icons-png.flaticon.com/512/6572/6572628.png';
+  var faviconUrl = 'https://i.imgur.com/r8DRrJg.png';
   htmlOutput.setFaviconUrl(faviconUrl);
       
   return htmlOutput;
