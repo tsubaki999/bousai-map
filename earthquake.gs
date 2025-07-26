@@ -164,53 +164,59 @@ function getEarthquakeDataAndWriteToSheet() {
 }
 
 /**
- * 【★★★ キャッシュ対応＆フォールバック機能付き ★★★】
- * 地震情報を取得する。キャッシュ -> シートの順で探し、それでもデータがなければ訓練データを返す。
+ * 地震情報を取得する関数
+ * ★★★【時間フィルター追加】発生から3時間以内のデータのみを対象とする ★★★
  * @returns {Array<Object>} 地震情報の配列
  */
 function getEarthquakeDataFromSheet() {
-  
-  // 1. キャッシュサービスを取得
   const cache = CacheService.getScriptCache();
-  const cacheKey = 'earthquake_data_v2'; // キャッシュ用のキー
+  const cacheKey = 'earthquake_data_v3'; // ロジック変更のためキーを更新
 
-  // 2. キャッシュにデータがあるか確認
   const cachedData = cache.get(cacheKey);
   if (cachedData != null) {
     Logger.log("地震情報：キャッシュからデータを取得しました。");
-    return JSON.parse(cachedData); // キャッシュされたデータを返す
+    return JSON.parse(cachedData);
   }
 
-  // --- ▼▼▼ キャッシュがなかった場合の処理 ▼▼▼ ---
   Logger.log("地震情報：キャッシュがないため、スプレッドシートから新規にデータを取得します。");
   
-  const SHEET_NAME = '地震情報';
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName(SHEET_NAME);
-    let quakes = []; // 地震情報を格納する配列を初期化
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('地震情報');
+    let quakes = [];
 
     if (sheet && sheet.getLastRow() > 1) {
       const numRows = Math.min(50, sheet.getLastRow() - 1);
       const data = sheet.getRange(2, 1, numRows, 10).getValues();
       
-      quakes = data.map(function(row) {
-        const intensityStr = String(row[4]);
-        const intensityMap = { '5-':5, '5+':5.5, '6-':6, '6+':6.5 };
-        return {
-          time: new Date(row[1]).toISOString(), // 日付をISO文字列に変換
-          title: row[2],
-          content: `最大震度: ${row[4]}, M${row[5]}, 深さ: ${row[6]}`,
-          maxIntensity: intensityMap[intensityStr] || parseFloat(intensityStr),
-          magnitude: row[5],
-          epicenter: row[3],
-          depth: row[6],
-          lat: row[7],
-          lng: row[8],
-          detailLink: row[9]
-        };
-      }).filter(q => q.lat && q.lng); // 緯度経度がないデータは除外
+      const now = new Date();
+      // ★★★ 3時間前の時刻を計算 ★★★
+      const threeHoursAgo = new Date(now.getTime() - (3 * 60 * 60 * 1000));
+
+      quakes = data
+        .map(function(row) {
+          const eventTime = new Date(row[1]);
+          // ★★★ 時間フィルター：発生から3時間以上経過したデータは除外 ★★★
+          if (eventTime < threeHoursAgo) {
+            return null;
+          }
+        
+          const intensityStr = String(row[4]);
+          const intensityMap = { '5-':5, '5+':5.5, '6-':6, '6+':6.5 };
+          return {
+            time: eventTime.toISOString(),
+            title: row[2],
+            content: `最大震度: ${row[4]}, M${row[5]}, 深さ: ${row[6]}`,
+            maxIntensity: intensityMap[intensityStr] || parseFloat(intensityStr),
+            magnitude: row[5], epicenter: row[3], depth: row[6],
+            lat: row[7], lng: row[8], detailLink: row[9]
+          };
+        })
+        .filter(q => q !== null && q.lat && q.lng); // nullと無効なデータを除外
     }
+
+    // データをキャッシュに保存（データが0件でも空配列をキャッシュ）
+    Logger.log(`${quakes.length}件の有効な地震情報を取得し、キャッシュに保存します。（有効期限10分）`);
+    cache.put(cacheKey, JSON.stringify(quakes), 600);
 
     // 3. データが取得できたか判定
     if (quakes.length > 0) {
