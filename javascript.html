@@ -104,6 +104,15 @@
       setInterval(refreshAllData, 5 * 60 * 1000);
     }
 
+    // ★★★ GeoJSONをサーバーから非同期で取得して地図にロード ★★★
+    google.script.run.withSuccessHandler(function(geojson) {
+        if (geojson) {
+            map.data.addGeoJson(geojson);
+        } else {
+            console.error("GeoJSONデータの読み込みに失敗しました。");
+        }
+    }).getGeoJson();
+
     // --- イベントリスナー設定 ---
     function setupLayerToggles() {
       document.getElementById('originSelect').addEventListener('change', drawFilteredRoutes);

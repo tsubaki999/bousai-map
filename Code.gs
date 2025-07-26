@@ -13,6 +13,26 @@ function include(filename) {
  * HTMLテンプレートを使用して、複数ファイルを結合します。
  */
 function doGet(e) {
+  // ★★★ createTemplateFromFile().evaluate() になっているか？ ★★★
+  var htmlOutput = HtmlService.createTemplateFromFile('map').evaluate()
+      .setTitle('物語防災マップ')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+      
+  var faviconUrl = 'https://cdn-icons-png.flaticon.com/512/6572/6572628.png';
+  htmlOutput.setFaviconUrl(faviconUrl);
+      
+  return htmlOutput;
+}
+
+// ★★★ この関数が追加されているか？ ★★★
+function getGeoJson() {
+  const htmlOutput = HtmlService.createHtmlOutputFromFile('geojson.json');
+  return JSON.parse(htmlOutput.getContent());
+}
+
+/*
+function doGet(e) {
   var htmlOutput = HtmlService.createTemplateFromFile('map').evaluate()
       .setTitle('物語防災マップ(アルファ版)')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
@@ -23,25 +43,7 @@ function doGet(e) {
       
   return htmlOutput;
 }
-
-/**
- * ウェブアプリのGETリクエストを処理する関数。
- * .setTitle() と .setFaviconUrl() を使ってタイトルとファビコンを確実に設定します。
- * FaviconはサポートされているPNG形式のURLを使用します。
- */
-/*
-function doGet(e) {
-  var htmlOutput = HtmlService.createHtmlOutputFromFile('map')
-      .setTitle('物語防災マップ(アルファ版)') // ページタイトルを直接設定
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
-      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
-      
-  // ★★★ 修正点：最も安定している透過PNG画像のURLに戻します ★★★
-  var faviconUrl = 'https://cdn-icons-png.flaticon.com/512/6572/6572628.png';
-  htmlOutput.setFaviconUrl(faviconUrl);
-      
-  return htmlOutput;
-}*/
+*/
 
 // 配送ルートデータをスプレッドシートから取得し返す（経由地可変対応）
 function getRouteMapData() {
