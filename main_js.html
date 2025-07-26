@@ -1,0 +1,73 @@
+<script>
+    // グローバル変数定義
+    var map, directionsService, infoWindow, geocoder;
+    var allRoutes = [], renderedRoutes = [], animationIntervals = [], allStoreMarkers = [];
+    var allWarningCircles = [], allEarthquakeCircles = [], allEarthquakeOverlays = [], allLspPolygons = [], allOutageMarkers = [], monogatariMarkers = [];
+    var allTyphoonOverlays = [];
+    var earthquakeAnimationIntervals = [];
+    var radarUpdateInterval = null;
+    var trafficLayer;
+
+    // 自動更新のメインロジック
+    async function refreshAllData() {
+        console.log(`[${new Date().toLocaleTimeString()}] データの更新を開始します...`);
+        const loader = document.getElementById('loader-overlay');
+        loader.classList.remove('hidden');
+        
+        clearAllOverlays();
+        
+        const [routes, warnings, quakes, outages, lspData, monogatariStores] = await Promise.all([
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getRouteMapData()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getWeatherWarningsFromSheet()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getEarthquakeDataFromSheet()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getPowerOutageDataFromMeraki()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getLineShapedPrecipitationFromSheet()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getMonogatariStores())
+        ]);
+        
+        await fetchTyphoonData();
+
+        console.log("基本データの取得が完了しました。");
+        allRoutes = routes;
+        populateFilters(routes);
+        await placeMarkers();
+        drawFilteredRoutes();
+        placeMonogatariMarkers(monogatariStores);
+        loadWeatherWarnings(warnings);
+        placeEarthquakeMarkers(quakes);
+        placeMerakiOutageMarkers(outages);
+        if(lspData) {
+            placeLineShapedPrecipitationPolygons(lspData.polygons);
+            addLspTextToWarnings(lspData.texts);
+        }
+        placeWarningMarkers(warnings);
+        document.getElementById('last-updated').textContent = '最終更新: ' + new Date().toLocaleTimeString();
+        console.log(`[${new Date().toLocaleTimeString()}] データの更新が完了しました。`);
+        loader.classList.add('hidden');
+    }
+
+    // 初期化処理
+    async function initMap() {
+      map = new google.maps.Map(document.getElementById("map"), { center: { lat: 36.2048, lng: 138.2529 }, zoom: 6, mapId: 'd9bbe126f7dc436f2b40c092' });
+      trafficLayer = new google.maps.TrafficLayer(); trafficLayer.setMap(map);
+      directionsService = new google.maps.DirectionsService();
+      infoWindow = new google.maps.InfoWindow();
+      geocoder = new google.maps.Geocoder();
+      
+      // ヘルパー関数を呼び出す
+      setupLayerToggles();
+      setupRadarControls();
+      
+      // メインの処理を開始
+      await refreshAllData();
+      setInterval(refreshAllData, 5 * 60 * 1000);
+    }
+
+    // Google Maps APIの読み込み
+    google.script.run.withSuccessHandler(function(apiKey) {
+      var script = document.createElement('script');
+      script.src = 'https://maps.googleapis.com/maps/api/js?key=' + apiKey + '&libraries=marker,geometry,places&callback=initMap';
+      script.async = true;
+      document.head.appendChild(script);
+    }).getApiKey();
+</script>
