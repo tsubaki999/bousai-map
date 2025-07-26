@@ -205,12 +205,13 @@
 
     // --- 災害情報、配送ルート、その他マーカーの設置 ---
     function getWarningStyle(title) {
+        // ★★★ 修正点: impactLevel をリスクスコアに変更 ★★★
         if (!title) return { color: '#888888', level: 0, impactLevel: 0, name: '情報' };
-        if (title.includes('特別警報')) return { color: '#800080', level: 5, impactLevel: 10, name: '【特別警報】' };
-        if (title.includes('土砂災害警戒情報')) return { color: '#FF00FF', level: 4, impactLevel: 8, name: '【土砂災害警戒】' };
-        if (title.includes('警報')) return { color: '#FF0000', level: 3, impactLevel: 6, name: '【警報】' };
-        if (title.includes('注意報')) return { color: '#FFFF00', level: 2, impactLevel: 4, name: '【注意報】' };
-        return { color: '#888888', level: 1, impactLevel: 2, name: '早期注意情報' };
+        if (title.includes('特別警報')) return { color: '#800080', level: 5, impactLevel: 60, name: '特別警報' };
+        if (title.includes('土砂災害警戒情報') || title.includes('線状降水帯')) return { color: '#FF00FF', level: 4, impactLevel: 40, name: '避難指示相当' };
+        if (title.includes('警報')) return { color: '#FF0000', level: 3, impactLevel: 20, name: '警報' };
+        if (title.includes('注意報')) return { color: '#FFFF00', level: 2, impactLevel: 5, name: '注意報' }; // 注意報は5点
+        return { color: '#888888', level: 1, impactLevel: 0, name: 'その他情報' };
     }
 
     function placeWarningMarkers(warnings) {
@@ -253,15 +254,14 @@
     }
 
     function getEarthquakeStyle(intensity) {
-        const intensityString = convertIntensityToString(intensity); const name = `震度 ${intensityString}`;
-        if (intensity >= 7.0) return { color: '#800080', textColor: '#FFFFFF', scale: 25, impactLevel: 11, name: name };
-        if (intensity >= 6.5) return { color: '#d9333f', textColor: '#FFFFFF', scale: 22, impactLevel: 9, name: name };
-        if (intensity >= 6.0) return { color: '#ff4500', textColor: '#FFFFFF', scale: 20, impactLevel: 9, name: name };
-        if (intensity >= 5.5) return { color: '#ff8c00', textColor: '#FFFFFF', scale: 18, impactLevel: 7, name: name };
-        if (intensity >= 5.0) return { color: '#ffc400', textColor: '#000000', scale: 15, impactLevel: 7, name: name };
-        if (intensity >= 4.0) return { color: '#00bfff', textColor: '#FFFFFF', scale: 10, impactLevel: 5, name: name };
-        if (intensity >= 3.0) return { color: '#90ee90', textColor: '#000000', scale: 8,  impactLevel: 3, name: name };
-        return { color: '#d3d3d3', textColor: '#000000', scale: 5, impactLevel: 1, name: name };
+        const intensityString = convertIntensityToString(intensity);
+        const name = `震度 ${intensityString}`;
+        // ★★★ 修正点: impactLevel をリスクスコアに変更 ★★★
+        if (intensity >= 6.0) return { color: '#d9333f', endColor: '#ff4500', textColor: '#FFFFFF', scale: 22, impactLevel: 50, name: name }; // 震度6弱以上
+        if (intensity >= 5.5) return { color: '#ff8c00', endColor: '#ffc400', textColor: '#FFFFFF', scale: 18, impactLevel: 40, name: name }; // 震度5強
+        if (intensity >= 5.0) return { color: '#ffc400', endColor: '#ffff00', textColor: '#000000', scale: 15, impactLevel: 30, name: name }; // 震度5弱
+        if (intensity >= 4.0) return { color: '#00bfff', endColor: '#90ee90', textColor: '#000000', scale: 10, impactLevel: 15, name: name }; // 震度4
+        return { color: '#d3d3d3', endColor: '#f0f0f0', textColor: '#000000', scale: 5, impactLevel: 0, name: `震度${intensityString}` };
     }
 
     function createEarthquakeMarkerContent(intensity) {
@@ -597,4 +597,126 @@
       script.async = true;
       document.head.appendChild(script);
     }).getApiKey();
+
+    function checkStoreImpacts() {
+        const list = document.getElementById('affectedStoresList');
+        list.innerHTML = '';
+        let affectedStoresForList = [];
+        const allCheckableStores = allStoreMarkers.concat(monogatariMarkers);
+
+        // スコアに応じたマーカーの色を定義
+        const scoreColors = {
+            default: '#3498db', // 通常時 (今回は使わない)
+            low: '#f1c40f',     // 警告 (黄)
+            medium: '#e67e22',  // 危険 (オレンジ)
+            high: '#e74c3c'      // 極めて危険 (赤)
+        };
+
+        allCheckableStores.forEach(store => {
+            if (!store || !store.marker || !store.marker.position) return;
+
+            let riskScore = 0;
+            let riskFactors = new Set(); // 重複しないようにSetを使用
+
+            // --- 1. 各災害の単体リスクを評価 ---
+            // 気象警報
+            const affectingWarning = allWarningCircles
+                .filter(c => c.getMap() && google.maps.geometry.spherical.computeDistanceBetween(store.marker.position, c.getCenter()) <= c.getRadius())
+                .reduce((max, c) => (c.warningStyle.impactLevel > max.impactLevel) ? c.warningStyle : max, {impactLevel: 0});
+            if (affectingWarning.impactLevel > 0) {
+                riskScore += affectingWarning.impactLevel;
+                riskFactors.add(affectingWarning.name);
+            }
+            
+            // 地震
+            const affectingQuake = allEarthquakeCircles
+                .filter(c => c.getMap() && google.maps.geometry.spherical.computeDistanceBetween(store.marker.position, c.getCenter()) <= c.getRadius())
+                .reduce((max, c) => (c.quakeStyle.impactLevel > max.impactLevel) ? c.quakeStyle : max, {impactLevel: 0});
+            if (affectingQuake.impactLevel > 0) {
+                riskScore += affectingQuake.impactLevel;
+                riskFactors.add(affectingQuake.name);
+            }
+
+            // 停電 (Meraki)
+            const isOutage = allOutageMarkers.some(m => m.getMap() && google.maps.geometry.spherical.computeDistanceBetween(store.marker.position, m.position) < 1000); // 1km以内
+            if (isOutage) {
+                riskScore += 10;
+                riskFactors.add('停電');
+            }
+
+            // --- 2. 複合災害リスクの評価 ---
+            const hasWeatherFactor = riskFactors.has('警報') || riskFactors.has('避難指示相当') || riskFactors.has('特別警報');
+            const hasQuakeFactor = affectingQuake.impactLevel >= 15; // 震度4以上
+
+            if (hasWeatherFactor && hasQuakeFactor) {
+                riskScore += (affectingQuake.impactLevel >= 30) ? 20 : 10; // 震度5弱以上なら+20点、震度4なら+10点
+                riskFactors.add('複合災害(大雨+地震)');
+            }
+            if (isOutage && (hasWeatherFactor || hasQuakeFactor)) {
+                riskScore += 20;
+                riskFactors.add('複合災害(停電)');
+            }
+            
+            // --- 3. マーカーとリストの表示更新 ---
+            const markerContent = store.marker.content;
+            if (riskScore >= 20) { // リスクスコア20点以上をハイライト対象
+                affectedStoresForList.push({
+                    name: store.name,
+                    address: store.address || '',
+                    score: riskScore,
+                    factors: Array.from(riskFactors).join(', '),
+                    store: store
+                });
+
+                if (markerContent) {
+                    let finalColor = scoreColors.low; // デフォルトは黄色
+                    if (riskScore >= 60) finalColor = scoreColors.high;
+                    else if (riskScore >= 40) finalColor = scoreColors.medium;
+                    
+                    if (markerContent.classList.contains('pin-marker-content')) {
+                        const newLabel = document.createElement('div');
+                        newLabel.className = 'warning-label';
+                        newLabel.style.backgroundColor = finalColor;
+                        newLabel.style.color = '#fff';
+                        newLabel.textContent = store.name;
+                        store.marker.content = newLabel;
+                    } else if (markerContent.classList.contains('warning-label')) {
+                        markerContent.style.backgroundColor = finalColor;
+                    }
+                }
+            } else {
+                if (markerContent && markerContent.classList.contains('warning-label')) {
+                    store.marker.content = createPinMarkerContent();
+                }
+            }
+        });
+
+        // --- 4. 影響下店舗リストの描画 ---
+        affectedStoresForList.sort((a, b) => b.score - a.score);
+        if (affectedStoresForList.length === 0) {
+            list.innerHTML = '<li>現在、深刻な影響を受けている店舗はありません。</li>';
+        } else {
+            affectedStoresForList.forEach(item => {
+                const li = document.createElement('li');
+                let color = scoreColors.low;
+                if (item.score >= 60) color = scoreColors.high;
+                else if (item.score >= 40) color = scoreColors.medium;
+                
+                li.style.cssText = `padding: 8px; cursor: default; border-left: 4px solid ${color}; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;`;
+
+                let xSearchButton = '';
+                if (item.address) { /* ... Xボタン生成ロジックは変更なし ... */ }
+
+                li.innerHTML = `
+                    <div style="flex-grow: 1; cursor: pointer;" onclick="map.setCenter({lat:${item.store.marker.position.lat},lng:${item.store.marker.position.lng}}); map.setZoom(14);">
+                        <strong style="color:${color};">[Risk: ${Math.round(item.score)}]</strong>
+                        <span>${escapeHtml(item.name)}</span><br>
+                        <small style="color: #666; font-size: 11px;">要因: ${escapeHtml(item.factors)}</small>
+                    </div>
+                    ${xSearchButton}
+                `;
+                list.appendChild(li);
+            });
+        }
+    }
 </script>
