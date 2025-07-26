@@ -493,13 +493,12 @@
 
                 const distanceText = item.distance !== null ? ` (震源から約${(item.distance / 1000).toFixed(1)}km)` : '';
 
-                li.innerHTML = `
-                    <div style="flex-grow: 1; cursor: pointer;" onclick="map.setCenter({lat:${item.store.marker.position.lat},lng:${item.store.marker.position.lng}}); map.setZoom(14);">
-                        <span style="color:${item.color}; font-weight: bold;">${escapeHtml(item.text)}</span>
-                        <span>${escapeHtml(item.name)}${distanceText}</span>
-                    </div>
-                    ${xSearchButton}
-                `;
+            li.innerHTML = 
+                '<div style="flex-grow: 1; cursor: pointer;" onclick="map.setCenter({lat:'+item.store.marker.position.lat+',lng:'+item.store.marker.position.lng+'}); map.setZoom(14);">' +
+                '<span style="color:'+item.color+'; font-weight: bold;">[' + escapeHtml(item.text) + ']</span> ' +
+                '<span>' + escapeHtml(item.name) + distanceText + '</span>' +
+                '</div>' + xSearchButton;
+
                 list.appendChild(li);
             });
         }
