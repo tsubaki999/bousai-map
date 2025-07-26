@@ -74,6 +74,7 @@
         await placeMarkers();
         //drawFilteredRoutes();
         await placeMonogatariMarkers(monogatariStores);
+        updatePrefectureHighlight(weatherData.affectedPrefectures, weatherData.warnings);
         loadWeatherWarnings(warnings);
         placeEarthquakeMarkers(quakes);
         placeMerakiOutageMarkers(outages);
@@ -238,6 +239,43 @@
         toggleLayerVisibility(allWarningCircles, document.getElementById('toggleWarnings').checked);
         checkStoreImpacts();
     }
+
+    /**
+     * 【新規作成】都道府県のハイライト表示を更新する関数
+     * @param {Array<string>} prefectures - 色を塗る都道府県名のリスト
+     * @param {Array<Object>} warnings - 色を決めるための警報データ
+     */
+    function updatePrefectureHighlight(prefectures, warnings) {
+        // まずすべての都道府県のスタイルをデフォルトに戻す
+        map.data.forEach(feature => {
+            map.data.revertStyle(feature);
+        });
+
+        if (!prefectures || prefectures.length === 0) return;
+
+        map.data.forEach(feature => {
+            const prefName = feature.getProperty('name_ja');
+            if (prefectures.includes(prefName)) {
+                // この都道府県に出ている最も高いレベルの警報を探す
+                const maxLevelWarning = warnings
+                    .filter(w => w.region.startsWith(prefName))
+                    .reduce((max, w) => {
+                        const style = getWarningStyle(w.title);
+                        return style.level > max.level ? style : max;
+                    }, { level: 0, color: '#333333' }); // デフォルト色
+                
+                // 地図のデータレイヤーのスタイルを上書き
+                map.data.overrideStyle(feature, {
+                    fillColor: maxLevelWarning.color,
+                    fillOpacity: 0.4,
+                    strokeColor: '#333', // 境界線の色は濃いグレーで統一
+                    strokeWeight: 2,
+                    zIndex: 2 // 他のポリゴンより手前に表示
+                });
+            }
+        });
+    }
+
 
     function placeMerakiOutageMarkers(outages) {
         if (!outages || outages.length === 0) return;

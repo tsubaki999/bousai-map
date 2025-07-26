@@ -464,6 +464,7 @@ function toLocalDate(dateString) {
  * スプレッドシートから気象警報情報を取得する【★★★ キャッシュ対応版 ★★★】
  * @return {Array<Object>} 警報情報の配列。
  */
+/*
 function getWeatherWarningsFromSheet() {
   
   // 1. キャッシュサービスを取得
@@ -542,6 +543,7 @@ function getWeatherWarningsFromSheet() {
     return []; 
   }
 }
+*/
 
 /* =======================================================
    雨雲レーダー用のサーバー時刻タイムスタンプを生成する関数
@@ -656,4 +658,56 @@ function test_getWeeklyForecast() {
   }
   
   Logger.log("--- 2回目の実行終了 ---");
+}
+
+/**
+ * 【★★★ 戻り値変更版 ★★★】
+ * スプレッドシートから気象警報情報を取得し、都道府県リストも併せて返す。
+ * @return {Object} { warnings: Array<Object>, affectedPrefectures: Array<string> }
+ */
+function getWeatherWarningsFromSheet() {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'weather_warnings_v4'; // 戻り値が変わるためキーを更新
+  
+  const cachedData = cache.get(cacheKey);
+  if (cachedData != null) {
+    Logger.log("気象警報：キャッシュからデータを取得しました。");
+    return JSON.parse(cachedData);
+  }
+  
+  Logger.log("気象警報：キャッシュがないため、シートから新規にデータを取得します。");
+  
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('気象警報情報');
+    if (!sheet || sheet.getLastRow() < 2) return { warnings: [], affectedPrefectures: [] };
+    
+    const numRows = Math.min(100, sheet.getLastRow() - 1); // 処理件数を少し増やす
+    const data = sheet.getRange(2, 1, numRows, 7).getValues();
+    
+    const mappedData = data.map(row => ({ time: new Date(row[0]), title: row[1], summary: row[2], region: row[3], lat: row[4], lng: row[5], link: row[6] }));
+    const now = new Date();
+    const threeHoursAgo = new Date(now.getTime() - (3 * 60 * 60 * 1000)); // 3時間以内の警報を対象
+
+    const warnings = mappedData.filter(w => !w.title.includes('解除') && w.time >= threeHoursAgo);
+
+    // ★★★ 警報が出ている都道府県名のリストを作成（重複なし） ★★★
+    const affectedPrefs = [...new Set(warnings.map(w => {
+      const match = w.region.match(/^(.+[都道府県])/); // "東京都"などを抽出
+      return match ? match[1] : null;
+    }).filter(p => p !== null))];
+
+    const finalData = {
+      warnings: warnings.map(w => ({ ...w, time: w.time.toISOString() })),
+      affectedPrefectures: affectedPrefs
+    };
+
+    cache.put(cacheKey, JSON.stringify(finalData), 300); // 5分キャッシュ
+    Logger.log(`気象警報：新しいデータをキャッシュに保存しました（警報${warnings.length}件, 都道府県${affectedPrefs.length}件）。`);
+
+    return finalData;
+
+  } catch(e) {
+    Logger.log('getWeatherWarningsFromSheetでエラーが発生しました: ' + e.toString() + ' Stack: ' + e.stack);
+    return []; 
+  }
 }
