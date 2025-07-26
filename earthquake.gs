@@ -165,17 +165,26 @@ function getEarthquakeDataAndWriteToSheet() {
 
 /**
  * 地震情報を取得する関数
- * ★★★【時間フィルター追加】発生から3時間以内のデータのみを対象とする ★★★
+ * ★★★【フォールバック修正版】有効なデータがない場合は空配列を返す ★★★
  * @returns {Array<Object>} 地震情報の配列
  */
 function getEarthquakeDataFromSheet() {
+  // ★★★ テストしたい時だけ、このフラグを true に変更してください ★★★
+  const isTestModeNankai = false; 
+  if (isTestModeNankai) {
+    Logger.log("★★★ 南海トラフ地震テストモードが有効です。ダミーデータを返します。 ★★★");
+    return [{ time: new Date().toISOString(), title: '【訓練】南海トラフ巨大地震 - 紀伊半島沖', content: '最大震度: 7, M8.5, 深さ: 20km', maxIntensity: 7, lat: 33.5, lng: 135.9, detailLink: '#' }];
+  }
+  // ★★★ テストモードここまで ★★★
+
+
   const cache = CacheService.getScriptCache();
-  const cacheKey = 'earthquake_data_v3'; // ロジック変更のためキーを更新
+  const cacheKey = 'earthquake_data_v4'; // ロジック変更のためキーを更新
 
   const cachedData = cache.get(cacheKey);
   if (cachedData != null) {
     Logger.log("地震情報：キャッシュからデータを取得しました。");
-    return JSON.parse(cachedData);
+    return JSON.parse(cachedData); 
   }
 
   Logger.log("地震情報：キャッシュがないため、スプレッドシートから新規にデータを取得します。");
@@ -189,13 +198,11 @@ function getEarthquakeDataFromSheet() {
       const data = sheet.getRange(2, 1, numRows, 10).getValues();
       
       const now = new Date();
-      // ★★★ 3時間前の時刻を計算 ★★★
       const threeHoursAgo = new Date(now.getTime() - (3 * 60 * 60 * 1000));
 
       quakes = data
         .map(function(row) {
           const eventTime = new Date(row[1]);
-          // ★★★ 時間フィルター：発生から3時間以上経過したデータは除外 ★★★
           if (eventTime < threeHoursAgo) {
             return null;
           }
@@ -211,32 +218,17 @@ function getEarthquakeDataFromSheet() {
             lat: row[7], lng: row[8], detailLink: row[9]
           };
         })
-        .filter(q => q !== null && q.lat && q.lng); // nullと無効なデータを除外
+        .filter(q => q !== null && q.lat && q.lng);
     }
 
-    // データをキャッシュに保存（データが0件でも空配列をキャッシュ）
     Logger.log(`${quakes.length}件の有効な地震情報を取得し、キャッシュに保存します。（有効期限10分）`);
     cache.put(cacheKey, JSON.stringify(quakes), 600);
+    
+    // ★★★ 修正点: データがなくても空配列をそのまま返す ★★★
+    return quakes;
 
-    // 3. データが取得できたか判定
-    if (quakes.length > 0) {
-      // 取得できた場合：データをキャッシュに保存して返す
-      Logger.log(`${quakes.length}件の地震情報をシートから取得し、キャッシュに保存します。（有効期限10分）`);
-      cache.put(cacheKey, JSON.stringify(quakes), 600); // 有効期限を600秒 (10分) に設定
-      return quakes;
-    } else {
-      // 取得できなかった場合：訓練用の南海トラフ地震データを生成して返す
-      Logger.log("★★★ 有効な地震情報がなかったため、訓練用の南海トラフ地震データを返します。★★★");
-      const dummyQuakeData = [
-        { time: new Date().toISOString(), title: '【訓練】南海トラフ巨大地震 - 紀伊半島沖', content: '最大震度: 7, M8.5, 深さ: 20km', maxIntensity: 7, lat: 33.5, lng: 135.9, detailLink: '#' },
-        { time: new Date().toISOString(), title: '【訓練】南海トラフ巨大地震 - 四国沖', content: '最大震度: 7, M8.7, 深さ: 25km', maxIntensity: 7, lat: 32.8, lng: 133.8, detailLink: '#' },
-        { time: new Date().toISOString(), title: '【訓練】南海トラフ巨大地震 - 東海沖', content: '最大震度: 6強, M8.2, 深さ: 30km', maxIntensity: 6.5, lat: 34.0, lng: 137.5, detailLink: '#' },
-        { time: new Date().toISOString(), title: '【訓練】南海トラフ巨大地震 - 日向灘', content: '最大震度: 6強, M7.8, 深さ: 15km', maxIntensity: 6.5, lat: 32.0, lng: 132.0, detailLink: '#' }
-      ];
-      return dummyQuakeData;
-    }
   } catch (e) {
-    Logger.log('シートからの地震情報読み込み中にエラーが発生しました: ' + e.toString());
-    return []; // エラー時は空配列を返す
+    Logger.log('シートからの地震情報読み込み中にエラー: ' + e.toString());
+    return [];
   }
 }
