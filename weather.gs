@@ -575,4 +575,85 @@ function getServerTime() {
   return new Date();
 }
 
+/**
+ * 【★★★ データ構造FIX版 ★★★】
+ * 気象庁から週間天気予報のデータを取得し、キャッシュする関数。
+ */
+function getWeeklyForecast() {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'weekly_forecast_v3'; // ロジック変更のためキーを更新
+  
+  const cachedData = cache.get(cacheKey);
+  if (cachedData != null) {
+    Logger.log("週間天気予報：キャッシュからデータを取得しました。");
+    return JSON.parse(cachedData);
+  }
 
+  Logger.log("週間天気予報：キャッシュがないため、APIから新規にデータを取得します。");
+
+  try {
+    const url = "https://www.jma.go.jp/bosai/forecast/data/forecast/010000.json?v=" + new Date().getTime();
+    const response = UrlFetchApp.fetch(url, {'muteHttpExceptions': true});
+
+    if (response.getResponseCode() !== 200) {
+      Logger.log(`週間天気予報の取得に失敗 (Code: ${response.getResponseCode()})`);
+      cache.put(cacheKey, JSON.stringify(null), 300);
+      return null;
+    }
+    
+    const forecastData = JSON.parse(response.getContentText());
+    
+    // データが配列であり、中身があることを確認
+    if (Array.isArray(forecastData) && forecastData.length > 0) {
+      cache.put(cacheKey, JSON.stringify(forecastData), 10800); // 3時間キャッシュ
+      Logger.log("週間天気予報：新しいデータをキャッシュに保存しました。");
+      return forecastData;
+    } else {
+      Logger.log("取得した天気予報データが空または不正な形式です。");
+      return null;
+    }
+
+  } catch (e) {
+    Logger.log("週間天気予報の取得または解析中にエラー: " + e.message);
+    return null;
+  }
+}
+
+
+/**
+ * 【テスト用・修正版】getWeeklyForecast関数の動作を確認する
+ */
+function test_getWeeklyForecast() {
+  Logger.log("--- 週間天気予報 取得テスト開始 ---");
+
+  // 1回目の実行
+  Logger.log("1回目: APIから新規取得を試みます...");
+  const firstData = getWeeklyForecast();
+
+  // ★★★ 正しいキーと配列構造をチェック ★★★
+  if (firstData && Array.isArray(firstData) && firstData.length > 0 && firstData[0].publishingOffice) {
+    Logger.log(` -> 成功: ${firstData.length}件の予報区データを取得しました。`);
+    Logger.log(` -> 例: 最初の予報発表官署「${firstData[0].publishingOffice}」`);
+  } else if (firstData) {
+    Logger.log(" -> データは取得できましたが、想定した構造と異なります。");
+    Logger.log(" -> 取得データサンプル: " + JSON.stringify(firstData[0]).substring(0, 300));
+  } else {
+    Logger.log(" -> 失敗: データが取得できませんでした。");
+  }
+  
+  Logger.log("--- 1回目の実行終了 ---");
+  
+  Utilities.sleep(2000); 
+
+  Logger.log("--- 2回目の実行（キャッシュ利用）テスト開始 ---");
+
+  // 2回目の実行
+  const secondData = getWeeklyForecast();
+  if (secondData && Array.isArray(secondData) && secondData.length > 0) {
+    Logger.log(` -> 成功: キャッシュから ${secondData.length}件のデータを取得しました。`);
+  } else {
+    Logger.log(" -> 失敗: キャッシュからデータが取得できませんでした。");
+  }
+  
+  Logger.log("--- 2回目の実行終了 ---");
+}
