@@ -56,10 +56,11 @@
 
     async function refreshAllData() {
         console.log(`[${new Date().toLocaleTimeString()}] データの更新を開始します...`);
-        // ★★★ 修正点: 更新開始時にローダーを再表示（自動更新時用）★★★
         const loader = document.getElementById('loader-overlay');
         loader.classList.remove('hidden');
         clearAllOverlays();
+        
+        // サーバーサイドから全データを取得
         const [routes, warnings, quakes, outages, lspData, monogatariStores] = await Promise.all([
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getRouteMapData()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getWeatherWarningsFromSheet()),
@@ -68,20 +69,36 @@
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getLineShapedPrecipitationFromSheet()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getMonogatariStores())
         ]);
-        console.log("最新データの取得が完了しました。");
+        
+        // クライアントサイドで台風データを取得
+        await fetchTyphoonData();
+
+        console.log("基本データの取得が完了しました。");
         allRoutes = routes;
+
+        // --- 描画と影響判定の順序を明確化 ---
+
+        // 1. UI要素（フィルターやリスト）を先に更新
         populateFilters(routes);
+        loadWeatherWarnings(warnings); // ★ 気象警報リストはここで必ず描画
+        if(lspData) {
+          addLspTextToWarnings(lspData.texts);
+        }
+
+        // 2. 地図上のオーバーレイをすべて描画
         await placeMarkers();
-        //drawFilteredRoutes();
-        await placeMonogatariMarkers(monogatariStores);
-        loadWeatherWarnings(warnings);
+        drawFilteredRoutes();
+        placeMonogatariMarkers(monogatariStores);
         placeEarthquakeMarkers(quakes);
         placeMerakiOutageMarkers(outages);
+        placeWarningMarkers(warnings); // ★ 影響チェックを分離
         if(lspData) {
-            placeLineShapedPrecipitationPolygons(lspData.polygons);
-            addLspTextToWarnings(lspData.texts);
+          placeLineShapedPrecipitationPolygons(lspData.polygons);
         }
-        placeWarningMarkers(warnings);
+        
+        // 3. ★★★ 全ての描画が終わった後に、影響チェックを1回だけ実行 ★★★
+        checkStoreImpacts();
+
         document.getElementById('last-updated').textContent = '最終更新: ' + new Date().toLocaleTimeString();
         console.log(`[${new Date().toLocaleTimeString()}] データの更新が完了しました。`);
         loader.classList.add('hidden');
@@ -215,20 +232,35 @@
     }
 
     function placeWarningMarkers(warnings) {
-        if (!warnings || warnings.length === 0) { checkStoreImpacts(); return; }
-        warnings.forEach(function(w) {
-            var lat = parseFloat(w.lat), lng = parseFloat(w.lng); if (isNaN(lat) || isNaN(lng)) return;
-            var style = getWarningStyle(w.title);
-            var circle = new google.maps.Circle({ map: map, center: { lat: lat, lng: lng }, radius: 20000, fillColor: style.color, fillOpacity: 0.25, strokeColor: style.color, strokeOpacity: 0.5, strokeWeight: 1 });
+        if (!warnings || warnings.length === 0) {
+            // データがなければ何もしない
+            return; 
+        }
+
+        warnings.forEach(w => {
+            const lat = parseFloat(w.lat), lng = parseFloat(w.lng);
+            if (isNaN(lat) || isNaN(lng)) return;
+            
+            const style = getWarningStyle(w.title);
+            const circle = new google.maps.Circle({ map: map, center: { lat, lng }, radius: 20000, fillColor: style.color, fillOpacity: 0.25, strokeColor: style.color, strokeOpacity: 0.5, strokeWeight: 1 });
             circle.warningStyle = style;
             allWarningCircles.push(circle);
-            circle.addListener('click', function() {
-                var a_content = `<strong style="color:${style.color};">${escapeHtml(w.title)}</strong><br><strong>地域:</strong> ${escapeHtml(w.region)}<br><strong>内容:</strong> ${escapeHtml(w.summary)}<br><a href="${escapeHtml(w.link)}" target="_blank">詳細(気象庁)</a><br><strong>発表:</strong> ${new Date(w.time).toLocaleString()}`;
-                infoWindow.setContent(a_content); infoWindow.setPosition({ lat: lat, lng: lng }); infoWindow.open(map);
+
+            const infoContent = '<strong style="color:' + style.color + ';">' + escapeHtml(w.title) + '</strong><br>' +
+                              '<strong>地域:</strong> ' + escapeHtml(w.region) + '<br>' +
+                              '<strong>内容:</strong> ' + escapeHtml(w.summary) + '<br>' +
+                              '<a href="' + escapeHtml(w.link) + '" target="_blank">詳細(気象庁)</a><br>' +
+                              '<strong>発表:</strong> ' + new Date(w.time).toLocaleString();
+            
+            circle.addListener('click', () => {
+                infoWindow.setContent(infoContent);
+                infoWindow.setPosition({ lat, lng });
+                infoWindow.open(map);
             });
         });
+
+        // 描画した円の表示/非表示をトグルスイッチの状態に合わせる
         toggleLayerVisibility(allWarningCircles, document.getElementById('toggleWarnings').checked);
-        checkStoreImpacts();
     }
 
     function placeMerakiOutageMarkers(outages) {
@@ -604,22 +636,20 @@
         let affectedStoresForList = [];
         const allCheckableStores = allStoreMarkers.concat(monogatariMarkers);
 
-        // スコアに応じたマーカーの色を定義
         const scoreColors = {
-            default: '#3498db', // 通常時 (今回は使わない)
-            low: '#f1c40f',     // 警告 (黄)
-            medium: '#e67e22',  // 危険 (オレンジ)
-            high: '#e74c3c'      // 極めて危険 (赤)
+            default: '#3498db',
+            low: '#f1c40f',
+            medium: '#e67e22',
+            high: '#e74c3c'
         };
 
         allCheckableStores.forEach(store => {
             if (!store || !store.marker || !store.marker.position) return;
 
             let riskScore = 0;
-            let riskFactors = new Set(); // 重複しないようにSetを使用
+            let riskFactors = new Set();
 
-            // --- 1. 各災害の単体リスクを評価 ---
-            // 気象警報
+            // 1. 各災害の単体リスクを評価
             const affectingWarning = allWarningCircles
                 .filter(c => c.getMap() && google.maps.geometry.spherical.computeDistanceBetween(store.marker.position, c.getCenter()) <= c.getRadius())
                 .reduce((max, c) => (c.warningStyle.impactLevel > max.impactLevel) ? c.warningStyle : max, {impactLevel: 0});
@@ -628,7 +658,6 @@
                 riskFactors.add(affectingWarning.name);
             }
             
-            // 地震
             const affectingQuake = allEarthquakeCircles
                 .filter(c => c.getMap() && google.maps.geometry.spherical.computeDistanceBetween(store.marker.position, c.getCenter()) <= c.getRadius())
                 .reduce((max, c) => (c.quakeStyle.impactLevel > max.impactLevel) ? c.quakeStyle : max, {impactLevel: 0});
@@ -637,19 +666,19 @@
                 riskFactors.add(affectingQuake.name);
             }
 
-            // 停電 (Meraki)
-            const isOutage = allOutageMarkers.some(m => m.getMap() && google.maps.geometry.spherical.computeDistanceBetween(store.marker.position, m.position) < 1000); // 1km以内
+            // ★★★ 修正箇所: m.getMap() を m.map に変更 ★★★
+            const isOutage = allOutageMarkers.some(m => m.map && google.maps.geometry.spherical.computeDistanceBetween(store.marker.position, m.position) < 1000); 
             if (isOutage) {
                 riskScore += 10;
                 riskFactors.add('停電');
             }
 
-            // --- 2. 複合災害リスクの評価 ---
+            // 2. 複合災害リスクの評価
             const hasWeatherFactor = riskFactors.has('警報') || riskFactors.has('避難指示相当') || riskFactors.has('特別警報');
-            const hasQuakeFactor = affectingQuake.impactLevel >= 15; // 震度4以上
+            const hasQuakeFactor = affectingQuake.impactLevel >= 15;
 
             if (hasWeatherFactor && hasQuakeFactor) {
-                riskScore += (affectingQuake.impactLevel >= 30) ? 20 : 10; // 震度5弱以上なら+20点、震度4なら+10点
+                riskScore += (affectingQuake.impactLevel >= 30) ? 20 : 10;
                 riskFactors.add('複合災害(大雨+地震)');
             }
             if (isOutage && (hasWeatherFactor || hasQuakeFactor)) {
@@ -657,9 +686,9 @@
                 riskFactors.add('複合災害(停電)');
             }
             
-            // --- 3. マーカーとリストの表示更新 ---
+            // 3. マーカーとリストの表示更新
             const markerContent = store.marker.content;
-            if (riskScore >= 20) { // リスクスコア20点以上をハイライト対象
+            if (riskScore >= 20) {
                 affectedStoresForList.push({
                     name: store.name,
                     address: store.address || '',
@@ -669,7 +698,7 @@
                 });
 
                 if (markerContent) {
-                    let finalColor = scoreColors.low; // デフォルトは黄色
+                    let finalColor = scoreColors.low;
                     if (riskScore >= 60) finalColor = scoreColors.high;
                     else if (riskScore >= 40) finalColor = scoreColors.medium;
                     
@@ -691,7 +720,7 @@
             }
         });
 
-        // --- 4. 影響下店舗リストの描画 ---
+        // 4. 影響下店舗リストの描画
         affectedStoresForList.sort((a, b) => b.score - a.score);
         if (affectedStoresForList.length === 0) {
             list.innerHTML = '<li>現在、深刻な影響を受けている店舗はありません。</li>';
@@ -705,7 +734,7 @@
                 li.style.cssText = `padding: 8px; cursor: default; border-left: 4px solid ${color}; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;`;
 
                 let xSearchButton = '';
-                if (item.address) { /* ... Xボタン生成ロジックは変更なし ... */ }
+                if (item.address) { /* ... Xボタン生成ロジック ... */ }
 
                 li.innerHTML = `
                     <div style="flex-grow: 1; cursor: pointer;" onclick="map.setCenter({lat:${item.store.marker.position.lat},lng:${item.store.marker.position.lng}}); map.setZoom(14);">
