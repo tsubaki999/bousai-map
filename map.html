@@ -49,10 +49,7 @@
         <div id="affectedStores" class="info-panel" style="background:#fff8e1;"><h3 class="panel-header" onclick="togglePanel(this)">影響下の店舗 ▾</h3><div class="panel-content"><div class="panel-inner-content"><ul id="affectedStoresList" style="list-style:none; padding:0; margin:0;"><li>現在、影響を受けている店舗はありません。</li></ul></div></div></div>
       </div>
     </div>
-    <!-- ★★★ 修正箇所: 2つのJSファイルをインポート ★★★ -->
-    <!-- まずヘルパー関数を定義 -->
-    <?!= include('functions_js'); ?>
-    <!-- 次にメインロジックを実行 -->
-    <?!= include('main_js'); ?>
+    <!-- ★★★ サーバーサイドで設定されたJavaScriptをインポート ★★★ -->
+    <?!= include('javascript'); ?>
   </body>
 </html>
