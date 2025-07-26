@@ -101,7 +101,12 @@
       setupLayerToggles();
       setupRadarControls();
       await refreshAllData();
-      setInterval(refreshAllData, 5 * 60 * 1000);
+      // ★★★ 2. ページ全体をリロードするタイマーをここに追加 ★★★
+      setTimeout(() => {
+          console.log("5分経過したため、ページをリフレッシュします。");
+          document.getElementById('loader-overlay').classList.remove('hidden'); // ローダーを表示
+          location.reload();
+      }, 5 * 60 * 1000); // 5分
     }
 
     // --- イベントリスナー設定 ---
@@ -136,29 +141,51 @@
         var toggle = document.getElementById('toggleRadar');
         var slider = document.getElementById('radarOpacitySlider');
         var currentRadarLayer = null;
-        function removeCurrentRadarLayer() { if (currentRadarLayer) { map.overlayMapTypes.removeAt(map.overlayMapTypes.getArray().indexOf(currentRadarLayer)); currentRadarLayer = null; } }
-        function updateRadar() {
-            var date = new Date();
-            var minutes = date.getMinutes();
-            var roundedMinutes = Math.floor(minutes / 5) * 5;
-            date.setMinutes(roundedMinutes, 0, 0);
-            var year = date.getUTCFullYear(), month = ('0' + (date.getUTCMonth() + 1)).slice(-2), day = ('0' + date.getUTCDate()).slice(-2), hours = ('0' + date.getUTCHours()).slice(-2), mins = ('0' + date.getUTCMinutes()).slice(-2);
-            var timestamp = "" + year + month + day + hours + mins + "00";
+
+        function removeCurrentRadarLayer() {
+            if (currentRadarLayer) {
+                const index = map.overlayMapTypes.getArray().indexOf(currentRadarLayer);
+                if (index > -1) {
+                    map.overlayMapTypes.removeAt(index);
+                }
+                currentRadarLayer = null;
+            }
+        }
+
+        function showRadar() {
             removeCurrentRadarLayer();
-            var opacity = parseFloat(slider.value);
-            currentRadarLayer = new google.maps.ImageMapType({ getTileUrl: function(c, z) { if (z < 3 || z > 11) return null; return "https://www.jma.go.jp/bosai/jmatile/data/nowc/"+timestamp+"/none/"+timestamp+"/surf/hrpns/"+z+"/"+c.x+"/"+c.y+".png"; }, tileSize: new google.maps.Size(256, 256), isPng: true, name: "Rain Radar", opacity: opacity, minZoom: 3, maxZoom: 11 });
+            // サーバーから渡されたタイムスタンプを使ってURLを生成
+            const timestamp = document.body.dataset.timestamp; 
+            const opacity = parseFloat(slider.value);
+            
+            currentRadarLayer = new google.maps.ImageMapType({
+                getTileUrl: function(coord, zoom) {
+                    if (zoom < 3 || zoom > 14) return null;
+                    return `https://www.jma.go.jp/bosai/jmatile/data/nowc/${timestamp}/none/${timestamp}/surf/hrpns/${zoom}/${coord.x}/${coord.y}.png`;
+                },
+                tileSize: new google.maps.Size(256, 256),
+                isPng: true,
+                name: "Rain Radar",
+                opacity: opacity
+            });
             map.overlayMapTypes.push(currentRadarLayer);
         }
+
         toggle.addEventListener('change', function() {
             if (this.checked) {
-                slider.style.display = 'inline-block'; updateRadar();
-                if (!radarUpdateInterval) { radarUpdateInterval = setInterval(updateRadar, 5 * 60 * 1000); }
+                slider.style.display = 'inline-block';
+                showRadar();
             } else {
-                slider.style.display = 'none'; removeCurrentRadarLayer();
-                if (radarUpdateInterval) { clearInterval(radarUpdateInterval); radarUpdateInterval = null; }
+                slider.style.display = 'none';
+                removeCurrentRadarLayer();
             }
         });
-        slider.addEventListener('input', function() { if (currentRadarLayer) currentRadarLayer.setOpacity(parseFloat(this.value)); });
+
+        slider.addEventListener('input', () => {
+            if (currentRadarLayer) {
+                currentRadarLayer.setOpacity(parseFloat(slider.value));
+            }
+        });
     }
 
     // --- マーカーコンテンツ生成ヘルパー ---

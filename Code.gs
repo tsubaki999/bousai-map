@@ -10,15 +10,34 @@ function include(filename) {
 
 /**
  * ウェブアプリのGETリクエストを処理する関数。
- * HTMLテンプレートを使用して、複数ファイルを結合します。
+ * ★★★ サーバーサイドでレーダーのURLを完全に生成して渡す ★★★
  */
 function doGet(e) {
-  var htmlOutput = HtmlService.createTemplateFromFile('map').evaluate()
-      .setTitle('物語防災マップ(アルファ版)')
+  var template = HtmlService.createTemplateFromFile('map');
+  
+  // 1. サーバーサイドで正確な時刻を取得し、タイムスタンプを生成
+  const now = new Date();
+  const minutes = now.getMinutes();
+  const roundedMinutes = Math.floor(minutes / 5) * 5;
+  now.setMinutes(roundedMinutes, 0, 0); // 5分単位に丸める
+
+  const year = now.getUTCFullYear();
+  const month = ('0' + (now.getUTCMonth() + 1)).slice(-2);
+  const day = ('0' + now.getUTCDate()).slice(-2);
+  const hours = ('0' + now.getUTCHours()).slice(-2);
+  const mins = ('0' + now.getUTCMinutes()).slice(-2);
+  const timestamp = `${year}${month}${day}${hours}${mins}00`;
+  
+  // 2. テンプレートに変数を渡す
+  template.timestamp = timestamp; // レーダーURL用のタイムスタンプ
+  
+  // 3. HTMLを評価して出力
+  var htmlOutput = template.evaluate()
+      .setTitle('物語防災マップ')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
       
-  var faviconUrl = 'https://cdn-icons-png.flaticon.com/512/6572/6572628.png';
+  var faviconUrl = 'https://i.imgur.com/r8DRrJg.png';
   htmlOutput.setFaviconUrl(faviconUrl);
       
   return htmlOutput;
