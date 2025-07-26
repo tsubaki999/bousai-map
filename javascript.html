@@ -190,27 +190,23 @@
 
     // --- 物語コーポレーション店舗マーカー設置 ---
     function placeMonogatariMarkers(stores) {
-        return new Promise(function(resolve) {
-            if (!stores || stores.length === 0) { resolve(); return; }
-            var geocodingPromises = stores.map(function(store) {
-                return new Promise(function(pResolve) {
-                    geocoder.geocode({ 'address': store.address }, function(results, status) {
-                        if (status === 'OK' && results[0]) {
-                            var marker = new google.maps.marker.AdvancedMarkerElement({ map: map, position: results[0].geometry.location, content: createPinMarkerContent(), title: store.name });
-                            monogatariMarkers.push({ marker: marker, name: store.name, address: store.address });
-                            marker.addListener("gmp-click", function() {
-                                var content = `<div style="font-family: sans-serif; font-size: 14px; max-width: 280px;"><strong style="font-size: 16px;">${escapeHtml(store.name)}</strong><br><strong>住所:</strong> ${escapeHtml(store.address)}<br><a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(store.address)}" target="_blank">Googleマップで見る</a></div>`;
-                                infoWindow.setContent(content);
-                                infoWindow.open({ anchor: marker, map: map });
-                            });
-                            toggleLayerVisibility([marker], document.getElementById('toggleMonogatariStores').checked);
-                        } else { console.error('ジオコーディング失敗: ' + store.name + ' - ' + status); }
-                        pResolve();
-                    });
+        if (!stores || stores.length === 0) { return; }
+        monogatariMarkers.forEach(m => m.marker.setMap(null));
+        monogatariMarkers = [];
+        stores.forEach(store => {
+            const lat = parseFloat(store.lat), lng = parseFloat(store.lng);
+            if (!isNaN(lat) && !isNaN(lng)) {
+                const position = { lat, lng };
+                const marker = new google.maps.marker.AdvancedMarkerElement({ map, position, content: createPinMarkerElement(), title: store.name });
+                monogatariMarkers.push({ marker, name: store.name, address: store.address });
+                marker.addListener("gmp-click", () => {
+                    const content = '<div style="font-family: sans-serif; font-size: 14px; max-width: 280px;"><strong style="font-size: 16px;">' + escapeHtml(store.name) + '</strong><br><strong>住所:</strong> ' + escapeHtml(store.address) + '<br><a href="https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(store.address) + '" target="_blank">Googleマップで見る</a></div>';
+                    infoWindow.setContent(content);
+                    infoWindow.open({ anchor: marker, map: map });
                 });
-            });
-            Promise.all(geocodingPromises).then(resolve);
+            }
         });
+        toggleLayerVisibility(monogatariMarkers.map(m => m.marker), document.getElementById('toggleStores').checked);
     }
 
     // --- 災害情報、配送ルート、その他マーカーの設置 ---
@@ -231,9 +227,19 @@
             var circle = new google.maps.Circle({ map: map, center: { lat: lat, lng: lng }, radius: 20000, fillColor: style.color, fillOpacity: 0.25, strokeColor: style.color, strokeOpacity: 0.5, strokeWeight: 1 });
             circle.warningStyle = style;
             allWarningCircles.push(circle);
+            
+            // ★★★ 修正箇所: テンプレートリテラルを文字列連結(+)に置換 ★★★
+            var infoContent = 
+                '<strong style="color:' + style.color + ';">' + escapeHtml(w.title) + '</strong><br>' +
+                '<strong>地域:</strong> ' + escapeHtml(w.region) + '<br>' +
+                '<strong>内容:</strong> ' + escapeHtml(w.summary) + '<br>' +
+                '<a href="' + escapeHtml(w.link) + '" target="_blank">詳細(気象庁)</a><br>' +
+                '<strong>発表:</strong> ' + new Date(w.time).toLocaleString();
+
             circle.addListener('click', function() {
-                var a_content = `<strong style="color:${style.color};">${escapeHtml(w.title)}</strong><br><strong>地域:</strong> ${escapeHtml(w.region)}<br><strong>内容:</strong> ${escapeHtml(w.summary)}<br><a href="${escapeHtml(w.link)}" target="_blank">詳細(気象庁)</a><br><strong>発表:</strong> ${new Date(w.time).toLocaleString()}`;
-                infoWindow.setContent(a_content); infoWindow.setPosition({ lat: lat, lng: lng }); infoWindow.open(map);
+                infoWindow.setContent(infoContent);
+                infoWindow.setPosition({ lat: lat, lng: lng });
+                infoWindow.open(map);
             });
         });
         toggleLayerVisibility(allWarningCircles, document.getElementById('toggleWarnings').checked);
@@ -329,21 +335,21 @@
     }
 
     function placeEarthquakeMarkers(quakes) {
-      if (!quakes || quakes.length === 0) return;
-      quakes.forEach(function(q) {
-        const lat = parseFloat(q.lat), lng = parseFloat(q.lng); if (isNaN(lat) || isNaN(lng)) return;
-        const position = { lat: lat, lng: lng }; const intensity = parseFloat(q.maxIntensity); const style = getEarthquakeStyle(intensity);
-        const circle = new google.maps.Circle({ strokeColor: style.color, strokeOpacity: 0.5, strokeWeight: 1, fillColor: style.color, fillOpacity: 0.2, map: map, center: position, radius: style.scale * 15000, zIndex: 99 });
-        circle.quakeStyle = style; allEarthquakeCircles.push(circle);
-        const marker = new google.maps.marker.AdvancedMarkerElement({ position: position, map: map, content: createEarthquakeMarkerContent(intensity), title: q.title, zIndex: 100 });
-        allEarthquakeOverlays.push(circle, marker);
-        const infoContent = `<strong>${escapeHtml(q.title)}</strong><br>最大震度: ${convertIntensityToString(intensity)}<br>${escapeHtml(q.content)}<br><a href="${escapeHtml(q.detailLink)}" target="_blank">詳細情報</a>`;
-        marker.addListener('gmp-click', () => { infoWindow.setContent(infoContent); infoWindow.open({ anchor: marker, map: map }); });
-        circle.addListener('click', () => { infoWindow.setContent(infoContent); infoWindow.setPosition(position); infoWindow.open(map); });
-      });
-      toggleLayerVisibility(allEarthquakeOverlays, document.getElementById('toggleEarthquakes').checked);
+        if (!quakes || quakes.length === 0) return;
+        quakes.forEach(q => {
+            const lat = parseFloat(q.lat), lng = parseFloat(q.lng); if (isNaN(lat) || isNaN(lng)) return;
+            const position = { lat, lng }; const intensity = parseFloat(q.maxIntensity); const style = getEarthquakeStyle(intensity);
+            const circle = new google.maps.Circle({ strokeColor: style.color, strokeOpacity: 0.5, strokeWeight: 1, fillColor: style.color, fillOpacity: 0.2, map: map, center: position, radius: style.scale * 15000, zIndex: 99 });
+            circle.quakeStyle = style; allEarthquakeCircles.push(circle);
+            const marker = new google.maps.marker.AdvancedMarkerElement({ position, map, content: createEarthquakeMarkerContent(intensity), title: q.title, zIndex: 100 });
+            allEarthquakeOverlays.push(circle, marker);
+            const infoContent = '<strong>' + escapeHtml(q.title) + '</strong><br>' + '最大震度: ' + convertIntensityToString(intensity) + '<br>' + escapeHtml(q.content) + '<br>' + '<a href="' + escapeHtml(q.detailLink) + '" target="_blank">詳細情報</a>';
+            marker.addListener('gmp-click', () => { infoWindow.setContent(infoContent); infoWindow.open({ anchor: marker, map: map }); });
+            circle.addListener('click', () => { infoWindow.setContent(infoContent); infoWindow.setPosition(position); infoWindow.open(map); });
+        });
+        toggleLayerVisibility(allEarthquakeOverlays, document.getElementById('toggleEarthquakes').checked);
     }
-    
+        
     function placeLineShapedPrecipitationPolygons(polygons) {
       if (!polygons || polygons.length === 0) return;
       polygons.forEach(function(area) {
@@ -613,29 +619,29 @@
         }); 
     }
     function drawAnimatedRoute(directionsResult, routeInfo) {
-      var route = directionsResult.routes[0], totalDistance = 0, totalDuration = 0;
-      route.legs.forEach(leg => { totalDistance += leg.distance.value; totalDuration += (leg.duration_in_traffic ? leg.duration_in_traffic.value : leg.duration.value); });
-      var waypointsDisplay = routeInfo.waypoints && routeInfo.waypoints.length > 0 ? `<strong>経由地:</strong> ${routeInfo.waypoints.map(wp => escapeHtml(wp.name)).join(' → ')}<br>` : '';
-      var tooltipContent = `<div style="font-family: sans-serif; font-size: 14px; max-width: 300px; line-height: 1.6;"><strong style="font-size: 16px; color: #007bff;">ルート詳細</strong><hr style="margin: 4px 0;"><strong>出発地:</strong> ${escapeHtml(routeInfo.originName)}<br>${waypointsDisplay}<strong>目的地:</strong> ${escapeHtml(routeInfo.destinationName)}<hr style="margin: 4px 0;"><strong>総距離:</strong> ${(totalDistance / 1000).toFixed(1)} km<br><strong>予測所要時間:</strong> ${Math.round(totalDuration / 60)} 分</div>`;
-      var basePolyline = new google.maps.Polyline({ path: route.overview_path, strokeColor: '#0099ff', strokeOpacity: 0.3, strokeWeight: 8, map: map });
-      var animatedPolyline = new google.maps.Polyline({ path: route.overview_path, strokeOpacity: 0, icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 3, fillColor: '#FF0000', fillOpacity: 0.8, strokeWeight: 1 }, offset: '0%' }], map: map });
-      basePolyline.addListener('click', e => { infoWindow.setContent(tooltipContent); infoWindow.setPosition(e.latLng); infoWindow.open(map); });
-      basePolyline.addListener('mouseover', () => { map.getDiv().style.cursor = 'pointer'; });
-      basePolyline.addListener('mouseout', () => { map.getDiv().style.cursor = ''; });
-      renderedRoutes.push(basePolyline, animatedPolyline);
-      var count = 0;
-      var interval = setInterval(() => { count = (count + 1) % 200; var icons = animatedPolyline.get('icons'); icons[0].offset = (count / 2) + '%'; animatedPolyline.set('icons', icons); }, 50);
-      animationIntervals.push(interval);
-    }
-    function addLspTextToWarnings(texts) {
-      if (!texts || texts.length === 0) return;
-      var ul = document.getElementById('warningsList');
-      texts.forEach(function(textInfo) {
-        var li = document.createElement('li');
-        li.style.cssText = 'margin-bottom: 8px; background: #fff0f5; padding: 5px; border-left: 4px solid #FF00FF;';
-        li.innerHTML = `<strong style="color:#FF00FF;">【警戒レベル4相当】線状降水帯情報: ${escapeHtml(textInfo.name)}</strong><br><small>発表: ${new Date(textInfo.time).toLocaleString()}</small>`;
-        if (ul.firstChild) ul.insertBefore(li, ul.firstChild); else ul.appendChild(li);
-      });
+        var route = directionsResult.routes[0], totalDistance = 0, totalDuration = 0;
+        route.legs.forEach(leg => { totalDistance += leg.distance.value; totalDuration += (leg.duration_in_traffic ? leg.duration_in_traffic.value : leg.duration.value); });
+        var waypointsDisplay = routeInfo.waypoints && routeInfo.waypoints.length > 0 ? '<strong>経由地:</strong> ' + routeInfo.waypoints.map(wp => escapeHtml(wp.name)).join(' → ') + '<br>' : '';
+        
+        // ★★★ 修正箇所: テンプレートリテラルを文字列連結(+)に置換 ★★★
+        var tooltipContent = 
+            '<div style="font-family: sans-serif; font-size: 14px; max-width: 300px; line-height: 1.6;">' +
+            '<strong style="font-size: 16px; color: #007bff;">ルート詳細</strong><hr style="margin: 4px 0;">' +
+            '<strong>出発地:</strong> ' + escapeHtml(routeInfo.originName) + '<br>' +
+            waypointsDisplay +
+            '<strong>目的地:</strong> ' + escapeHtml(routeInfo.destinationName) + '<hr style="margin: 4px 0;">' +
+            '<strong>総距離:</strong> ' + (totalDistance / 1000).toFixed(1) + ' km<br>' +
+            '<strong>予測所要時間:</strong> ' + Math.round(totalDuration / 60) + ' 分</div>';
+
+        var basePolyline = new google.maps.Polyline({ path: route.overview_path, strokeColor: '#0099ff', strokeOpacity: 0.3, strokeWeight: 8, map: map });
+        var animatedPolyline = new google.maps.Polyline({ path: route.overview_path, strokeOpacity: 0, icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 3, fillColor: '#FF0000', fillOpacity: 0.8, strokeWeight: 1 }, offset: '0%' }], map: map });
+        basePolyline.addListener('click', e => { infoWindow.setContent(tooltipContent); infoWindow.setPosition(e.latLng); infoWindow.open(map); });
+        basePolyline.addListener('mouseover', () => { map.getDiv().style.cursor = 'pointer'; });
+        basePolyline.addListener('mouseout', () => { map.getDiv().style.cursor = ''; });
+        renderedRoutes.push(basePolyline, animatedPolyline);
+        var count = 0;
+        var interval = setInterval(() => { count = (count + 1) % 200; var icons = animatedPolyline.get('icons'); icons[0].offset = (count / 2) + '%'; animatedPolyline.set('icons', icons); }, 50);
+        animationIntervals.push(interval);
     }
 
     google.script.run.withSuccessHandler(function(apiKey) {
