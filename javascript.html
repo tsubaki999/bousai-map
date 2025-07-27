@@ -56,35 +56,38 @@
 
     async function refreshAllData() {
         console.log(`[${new Date().toLocaleTimeString()}] データの更新を開始します...`);
-        // ★★★ 修正点: 更新開始時にローダーを再表示（自動更新時用）★★★
         const loader = document.getElementById('loader-overlay');
         loader.classList.remove('hidden');
         clearAllOverlays();
-        const [routes, warnings, quakes, outages, lspData, monogatariStores] = await Promise.all([
+        
+        // ★★★ サーバーからのデータ取得を一本化 ★★★
+        const [routes, affectedStores, monogatariStores, outages] = await Promise.all([
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getRouteMapData()),
-            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getWeatherWarningsFromSheet()),
-            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getEarthquakeDataFromSheet()),
-            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getPowerOutageDataFromMeraki()),
-            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getLineShapedPrecipitationFromSheet()),
-            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getMonogatariStores())
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getStoreImpacts()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getMonogatariStores()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getPowerOutageDataFromMeraki())
         ]);
-        console.log("最新データの取得が完了しました。");
+        
+        // 台風データのみクライアントサイドで取得
+        await fetchTyphoonData();
+
+        console.log("リスク評価結果の取得が完了しました。");
         allRoutes = routes;
+
+        // --- 描画処理 ---
         populateFilters(routes);
-        await placeMarkers();
-        //drawFilteredRoutes();
-        await placeMonogatariMarkers(monogatariStores);
-        updatePrefectureHighlight(weatherData.affectedPrefectures, weatherData.warnings);
-        loadWeatherWarnings(warnings);
-        placeEarthquakeMarkers(quakes);
-        placeMerakiOutageMarkers(outages);
-        if(lspData) {
-            placeLineShapedPrecipitationPolygons(lspData.polygons);
-            addLspTextToWarnings(lspData.texts);
-        }
-        placeWarningMarkers(warnings);
+        placeMonogatariMarkers(monogatariStores);     // 1. 全店舗をピンで描画
+        placeAffectedStoreMarkers(affectedStores);      // 2. リスクのある店舗にスコアマーカーを重ねて描画 & リストを作成
+        placeMerakiOutageMarkers(outages);            // 3. 停電情報を描画
+        
+        // ★★★ 不要になった関数の呼び出しを削除 ★★★
+        // loadWeatherWarnings(warnings); 
+        // placeWarningMarkers(warnings);
+        // placeEarthquakeMarkers(quakes);
+        // updatePrefectureHighlight(...);
+        
         document.getElementById('last-updated').textContent = '最終更新: ' + new Date().toLocaleTimeString();
-        console.log(`[${new Date().toLocaleTimeString()}] データの更新が完了しました。`);
+        console.log(`[${new Date().toLocaleTimeString()}] データ更新が完了しました。`);
         loader.classList.add('hidden');
     }
 
