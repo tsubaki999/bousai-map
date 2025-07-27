@@ -74,8 +74,8 @@
         //const typhoonData = await fetchTyphoonData();
 
         // 3. 取得した全データをまとめて、サーバーのリスク評価関数に渡す
-        const disasterData = { warnings, quakes, outages, typhoons: typhoonData };
-        
+        //const disasterData = { warnings, quakes, outages, typhoons: typhoonData };
+        /*
         google.script.run
             .withSuccessHandler(function(affectedStores) {
                 // --- 4. サーバーからの評価結果と、取得済みのデータを使って描画 ---
@@ -102,6 +102,7 @@
                 loader.classList.add('hidden');
             })
             .getStoreImpacts(monogatariStores, disasterData, document.querySelector('input[name="evaluation_time"]:checked').value === 'future');
+            */
     }
 
     // --- 初期化処理 ---
