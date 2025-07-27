@@ -662,13 +662,12 @@ function test_getWeeklyForecast() {
 
 
 /**
- * 【★★★ 戻り値変更版 ★★★】
+ * 【★★★ デバッグ強化版 ★★★】
  * スプレッドシートから気象警報情報を取得し、都道府県リストも併せて返す。
- * @return {Object} { warnings: Array<Object>, affectedPrefectures: Array<string> }
  */
 function getWeatherWarningsFromSheet() {
   const cache = CacheService.getScriptCache();
-  const cacheKey = 'weather_warnings_v4'; // 戻り値が変わるためキーを更新
+  const cacheKey = 'weather_warnings_v5'; // デバッグのためキーを更新
   
   const cachedData = cache.get(cacheKey);
   if (cachedData != null) {
@@ -679,35 +678,45 @@ function getWeatherWarningsFromSheet() {
   Logger.log("気象警報：キャッシュがないため、シートから新規にデータを取得します。");
   
   try {
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('気象警報情報');
+    // pullMeteoAndWriteToSheet(); // デバッグ中は一時的にコメントアウトして、既存のシートデータで確認
+    // SpreadsheetApp.flush(); 
+    
+    const sheetName = '気象警報情報';
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
     if (!sheet || sheet.getLastRow() < 2) {
-      // データがない場合も、正しい空のオブジェクトを返す
-      const emptyData = { warnings: [], affectedPrefectures: [] };
-      cache.put(cacheKey, JSON.stringify(emptyData), 300);
-      return emptyData;
+      Logger.log(`シート「${sheetName}」がないか、データがありません。`);
+      return { warnings: [], affectedPrefectures: [] };
     }
     
     const numRows = Math.min(100, sheet.getLastRow() - 1);
     const data = sheet.getRange(2, 1, numRows, 7).getValues();
-    
-    const mappedData = data.map(row => ({
-        time: new Date(row[0]), title: row[1], summary: row[2],
-        region: row[3], lat: row[4], lng: row[5], link: row[6]
-    }));
+    Logger.log(`シートから ${data.length} 件のレコードを読み込みました。`);
+
+    const mappedData = data.map(row => ({ time: new Date(row[0]), title: row[1], summary: row[2], region: row[3], lat: row[4], lng: row[5], link: row[6] }));
     
     const now = new Date();
     const threeHoursAgo = new Date(now.getTime() - (3 * 60 * 60 * 1000));
+    Logger.log(`フィルタリング基準時刻: ${threeHoursAgo.toLocaleString()}`);
+
+    // ★★★ フィルタリング前の全データをログ出力 ★★★
+    // mappedData.forEach((d, i) => {
+    //   Logger.log(`[${i}] ${d.time.toLocaleString()} - ${d.title} - ${d.region}`);
+    // });
 
     const warnings = mappedData.filter(w => 
         w.title && 
         !w.title.includes('解除') && 
         w.time >= threeHoursAgo
     );
+    
+    Logger.log(`時間フィルターと「解除」除外後の有効な警報件数: ${warnings.length} 件`);
+    if(warnings.length > 0) {
+      Logger.log(` -> 最初の有効な警報: ${warnings[0].title} in ${warnings[0].region}`);
+    }
 
-    // ★★★ 警報が出ている都道府県名のリストを作成（重複なし） ★★★
     const affectedPrefs = [...new Set(warnings.map(w => {
       if (!w.region) return null;
-      const match = w.region.match(/^(.+[都道府県])/); // "東京都"などを抽出
+      const match = w.region.match(/^(.+[都道府県])/);
       return match ? match[1] : null;
     }).filter(p => p !== null))];
 
@@ -716,8 +725,8 @@ function getWeatherWarningsFromSheet() {
       affectedPrefectures: affectedPrefs
     };
 
-    cache.put(cacheKey, JSON.stringify(finalData), 300); // 5分キャッシュ
-    Logger.log(`気象警報：新しいデータをキャッシュに保存（警報${warnings.length}件, 都道府県${affectedPrefs.length}件）。`);
+    cache.put(cacheKey, JSON.stringify(finalData), 300);
+    Logger.log(`最終的にクライアントに返すデータ: 警報${finalData.warnings.length}件, 都道府県${finalData.affectedPrefectures.length}件`);
 
     return finalData;
 
