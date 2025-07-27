@@ -169,66 +169,26 @@ function getEarthquakeDataAndWriteToSheet() {
  * @returns {Array<Object>} 地震情報の配列
  */
 function getEarthquakeDataFromSheet() {
-  // ★★★ テストしたい時だけ、このフラグを true に変更してください ★★★
-  const isTestModeNankai = false; 
-  if (isTestModeNankai) {
-    Logger.log("★★★ 南海トラフ地震テストモードが有効です。ダミーデータを返します。 ★★★");
-    return [{ time: new Date().toISOString(), title: '【訓練】南海トラフ巨大地震 - 紀伊半島沖', content: '最大震度: 7, M8.5, 深さ: 20km', maxIntensity: 7, lat: 33.5, lng: 135.9, detailLink: '#' }];
-  }
-  // ★★★ テストモードここまで ★★★
-
-
   const cache = CacheService.getScriptCache();
-  const cacheKey = 'earthquake_data_v4'; // ロジック変更のためキーを更新
-
+  const cacheKey = 'earthquake_data_v_stable';
   const cachedData = cache.get(cacheKey);
-  if (cachedData != null) {
-    Logger.log("地震情報：キャッシュからデータを取得しました。");
-    return JSON.parse(cachedData); 
-  }
+  if (cachedData != null) { return JSON.parse(cachedData); }
 
-  Logger.log("地震情報：キャッシュがないため、スプレッドシートから新規にデータを取得します。");
-  
   try {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('地震情報');
-    let quakes = [];
-
-    if (sheet && sheet.getLastRow() > 1) {
-      const numRows = Math.min(50, sheet.getLastRow() - 1);
-      const data = sheet.getRange(2, 1, numRows, 10).getValues();
-      
-      const now = new Date();
-      const threeHoursAgo = new Date(now.getTime() - (3 * 60 * 60 * 1000));
-
-      quakes = data
-        .map(function(row) {
-          const eventTime = new Date(row[1]);
-          if (eventTime < threeHoursAgo) {
-            return null;
-          }
-        
-          const intensityStr = String(row[4]);
-          const intensityMap = { '5-':5, '5+':5.5, '6-':6, '6+':6.5 };
-          return {
-            time: eventTime.toISOString(),
-            title: row[2],
-            content: `最大震度: ${row[4]}, M${row[5]}, 深さ: ${row[6]}`,
-            maxIntensity: intensityMap[intensityStr] || parseFloat(intensityStr),
-            magnitude: row[5], epicenter: row[3], depth: row[6],
-            lat: row[7], lng: row[8], detailLink: row[9]
-          };
-        })
-        .filter(q => q !== null && q.lat && q.lng);
-    }
-
-    Logger.log(`${quakes.length}件の有効な地震情報を取得し、キャッシュに保存します。（有効期限10分）`);
+    if (!sheet || sheet.getLastRow() < 2) return [];
+    const numRows = Math.min(50, sheet.getLastRow() - 1);
+    const data = sheet.getRange(2, 1, numRows, 10).getValues();
+    const now = new Date();
+    const threeHoursAgo = new Date(now.getTime() - (3 * 60 * 60 * 1000));
+    const quakes = data.map(function(row) {
+        const eventTime = new Date(row[1]);
+        if (eventTime < threeHoursAgo) return null;
+        const intensityStr = String(row[4]);
+        const intensityMap = { '5-':5, '5+':5.5, '6-':6, '6+':6.5 };
+        return { time: eventTime.toISOString(), title: row[2], content: '...', maxIntensity: intensityMap[intensityStr] || parseFloat(intensityStr), lat: row[7], lng: row[8], detailLink: row[9] };
+    }).filter(q => q);
     cache.put(cacheKey, JSON.stringify(quakes), 600);
-    
-    // ★★★ 修正点: データがなくても空配列をそのまま返す ★★★
     return quakes;
-
-  } catch (e) {
-    Logger.log('シートからの地震情報読み込み中にエラー: ' + e.toString());
-    return [];
-  }
+  } catch (e) { return []; }
 }

@@ -56,56 +56,35 @@
 
     async function refreshAllData() {
         console.log(`[${new Date().toLocaleTimeString()}] データの更新を開始します...`);
-        const loader = document.getElementById('loader-overlay');
-        loader.classList.remove('hidden');
+        // ...ローダー表示、クリア処理...
         clearAllOverlays();
         
-        // ★★★ 正しいデータ取得リストに修正 ★★★
-        const [
-            routes, 
-            weatherData, 
-            quakes, 
-            outages, 
-            lspData, 
-            monogatariStores, 
-            affectedStores // getStoreImpactsは後で実行
-        ] = await Promise.all([
+        // ★★★ weatherData を受け取るように変更 ★★★
+        const [routes, weatherData, quakes, outages, lspData, monogatariStores] = await Promise.all([
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getRouteMapData()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getWeatherWarningsFromSheet()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getEarthquakeDataFromSheet()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getPowerOutageDataFromMeraki()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getLineShapedPrecipitationFromSheet()),
-            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getMonogatariStores()),
-            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getStoreImpacts()) // リスク評価も一旦ここで取得
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getMonogatariStores())
         ]);
         
-        // ★★★ 台風データはクライアントサイドでの取得を一時停止（安定化のため） ★★★
-        // await fetchTyphoonData(); 
+        // ...
+        console.log("全データ取得完了。");
 
-        console.log("全データ取得完了。描画を開始します。");
-        allRoutes = routes;
-
-        // --- 描画処理 ---
-        populateFilters(routes);
-        placeMonogatariMarkers(monogatariStores);
-        
-        // weatherDataから正しい配列を渡す
-        loadWeatherWarnings(weatherData.warnings); 
-        updatePrefectureHighlight(weatherData.affectedPrefectures, weatherData.warnings);
-        
-        // placeWarningMarkersはコメントアウトのまま
-        
-        placeEarthquakeMarkers(quakes);
-        placeMerakiOutageMarkers(outages);
-        if(lspData) {
-            placeLineShapedPrecipitationPolygons(lspData.polygons);
-            addLspTextToWarnings(lspData.texts);
+        // ★★★ 取得したデータをコンソールで確認 ★★★
+        console.log("サーバーから受け取った警報データ:", weatherData);
+        if(weatherData && weatherData.affectedPrefectures){
+            console.log("影響のある都道府県:", weatherData.affectedPrefectures);
+        } else {
+            console.log("影響のある都道府県データがありません。");
         }
         
-        // placeAffectedStoreMarkers(affectedStores); // リスク評価は一旦表示を保留
+        // ★★★ 描画処理は一時的にコメントアウト ★★★
+        // placeWarningMarkers(weatherData.warnings);
+        // ...
         
-        document.getElementById('last-updated').textContent = '最終更新: ' + new Date().toLocaleTimeString();
-        console.log(`[${new Date().toLocaleTimeString()}] データ更新が完了しました。`);
+        console.log(`[${new Date().toLocaleTimeString()}] データ確認完了。`);
         loader.classList.add('hidden');
     }
 
@@ -277,16 +256,25 @@
     }
 
     function placeWarningMarkers(warnings) {
-        if (!warnings || warnings.length === 0) { checkStoreImpacts(); return; }
-        warnings.forEach(function(w) {
-            var lat = parseFloat(w.lat), lng = parseFloat(w.lng); if (isNaN(lat) || isNaN(lng)) return;
-            var style = getWarningStyle(w.title);
-            var circle = new google.maps.Circle({ map: map, center: { lat: lat, lng: lng }, radius: 20000, fillColor: style.color, fillOpacity: 0.25, strokeColor: style.color, strokeOpacity: 0.5, strokeWeight: 1 });
+        if (!warnings || warnings.length === 0) {
+            checkStoreImpacts(); // 影響店舗チェックは残す
+            return; 
+        }
+        warnings.forEach(w => {
+            const lat = parseFloat(w.lat), lng = parseFloat(w.lng);
+            if (isNaN(lat) || isNaN(lng)) return;
+            
+            const style = getWarningStyle(w.title);
+            const circle = new google.maps.Circle({ map: map, center: { lat, lng }, radius: 20000, fillColor: style.color, fillOpacity: 0.25, strokeColor: style.color, strokeOpacity: 0.5, strokeWeight: 1 });
             circle.warningStyle = style;
             allWarningCircles.push(circle);
-            circle.addListener('click', function() {
-                var a_content = `<strong style="color:${style.color};">${escapeHtml(w.title)}</strong><br><strong>地域:</strong> ${escapeHtml(w.region)}<br><strong>内容:</strong> ${escapeHtml(w.summary)}<br><a href="${escapeHtml(w.link)}" target="_blank">詳細(気象庁)</a><br><strong>発表:</strong> ${new Date(w.time).toLocaleString()}`;
-                infoWindow.setContent(a_content); infoWindow.setPosition({ lat: lat, lng: lng }); infoWindow.open(map);
+
+            const infoContent = '<strong style="color:' + style.color + ';">' + escapeHtml(w.title) + '</strong><br>' + '<strong>地域:</strong> ' + escapeHtml(w.region) + '<br>' + '<strong>内容:</strong> ' + escapeHtml(w.summary) + '<br>' + '<a href="' + escapeHtml(w.link) + '" target="_blank">詳細(気象庁)</a><br>' + '<strong>発表:</strong> ' + new Date(w.time).toLocaleString();
+            
+            circle.addListener('click', () => {
+                infoWindow.setContent(infoContent);
+                infoWindow.setPosition({ lat, lng });
+                infoWindow.open(map);
             });
         });
         toggleLayerVisibility(allWarningCircles, document.getElementById('toggleWarnings').checked);
