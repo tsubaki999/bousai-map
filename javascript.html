@@ -99,19 +99,50 @@ async function refreshAllData() {
 
     // --- 初期化処理 ---
     async function initMap() {
-      map = new google.maps.Map(document.getElementById("map"), {
-          center: { lat: 36.2048, lng: 138.2529 }, zoom: 6,
-          mapId: 'd9bbe126f7dc436f2b40c092'
-      });
-      trafficLayer = new google.maps.TrafficLayer();
-      trafficLayer.setMap(map);
-      directionsService = new google.maps.DirectionsService();
-      infoWindow = new google.maps.InfoWindow();
-      geocoder = new google.maps.Geocoder();
-      setupLayerToggles();
-      setupRadarControls();
-      await refreshAllData();
-      setInterval(refreshAllData, 5 * 60 * 1000);
+        // 1. マップとAPIオブジェクトを初期化
+        map = new google.maps.Map(document.getElementById("map"), {
+            center: { lat: 36.2048, lng: 138.2529 },
+            zoom: 5, // 日本全体が見えるように少し広めに設定
+            mapId: 'd9bbe126f7dc436f2b40c092'
+        });
+        trafficLayer = new google.maps.TrafficLayer();
+        // trafficLayer.setMap(map); // デフォルトではOFFにして、トグルでONにする
+        directionsService = new google.maps.DirectionsService();
+        infoWindow = new google.maps.InfoWindow();
+        geocoder = new google.maps.Geocoder();
+        
+        // 2. UIのイベントリスナーを設定
+        setupLayerToggles();
+        setupRadarControls();
+        
+        // 3. 都道府県の境界線データ（GeoJSON）を地図に読み込む
+        // まず、データレイヤーのデフォルトスタイルを設定
+        map.data.setStyle({
+            fillOpacity: 0,      // 通常時は透明
+            strokeColor: '#888', // 通常時の県境の色
+            strokeWeight: 1,
+            zIndex: 1
+        });
+
+        // サーバーからGeoJSONデータを非同期で取得して地図に追加
+        google.script.run.withSuccessHandler(function(geojson) {
+            if (geojson) {
+                map.data.addGeoJson(geojson);
+                console.log("GeoJSONデータが地図にロードされました。");
+            } else {
+                console.error("GeoJSONデータの読み込みに失敗しました。");
+            }
+        }).getGeoJson();
+
+        // 4. 全ての災害・店舗データを取得し、描画するメインの処理を実行
+        await refreshAllData();
+        
+        // 5. 5分ごとにページ全体をリロードしてデータを最新化
+        setInterval(() => {
+            console.log("5分経過したため、ページ全体をリフレッシュします。");
+            document.getElementById('loader-overlay').classList.remove('hidden');
+            location.reload();
+        }, 5 * 60 * 1000);
     }
 
     // ★★★ GeoJSONをサーバーから非同期で取得して地図にロード ★★★
@@ -626,31 +657,39 @@ function checkStoreImpacts() {
      * @param {Array<string>} prefectures - 色を塗る都道府県名のリスト
      * @param {Array<Object>} warnings - 色を決めるための警報データ
      */
-    function updatePrefectureHighlight(prefectures, warnings) {
-        setTimeout(function() { // GeoJSONのロードを待つ
-            map.data.forEach(feature => { map.data.revertStyle(feature); });
-            if (!prefectures || prefectures.length === 0) return;
-            map.data.forEach(feature => {
-                const prefName = feature.getProperty('name_ja');
-                if (prefectures.includes(prefName)) {
-                    const maxLevelWarning = warnings
-                        .filter(w => w.region.startsWith(prefName))
-                        .reduce((max, w) => {
-                            const style = getWarningStyle(w.title);
-                            return style.level > max.level ? style : max;
-                        }, { level: 0, color: '#333333' });
-                    
-                    map.data.overrideStyle(feature, {
-                        fillColor: maxLevelWarning.color,
-                        fillOpacity: 0.4,
-                        strokeColor: '#333',
-                        strokeWeight: 2,
-                        zIndex: 2
-                    });
-                }
-            });
-        }, 500);
+      function updatePrefectureHighlight(prefectures, warnings) {
+        // データがなければ何もしない
+        if (!prefectures || prefectures.length === 0 || !map.data) {
+            return;
+        }
+
+        // まずすべての都道府県のスタイルをデフォルトに戻す
+        map.data.forEach(feature => {
+            map.data.revertStyle(feature);
+        });
+
+        // 警報が出ている都道府県に色を塗る
+        map.data.forEach(feature => {
+            const prefName = feature.getProperty('name_ja');
+            if (prefectures.includes(prefName)) {
+                const maxLevelWarning = warnings
+                    .filter(w => w.region.startsWith(prefName))
+                    .reduce((max, w) => {
+                        const style = getWarningStyle(w.title);
+                        return style.level > max.level ? style : max;
+                    }, { level: 0, color: '#333333' });
+                
+                map.data.overrideStyle(feature, {
+                    fillColor: maxLevelWarning.color,
+                    fillOpacity: 0.4,
+                    strokeColor: '#333',
+                    strokeWeight: 2,
+                    zIndex: 2
+                });
+            }
+        });
     }
+
     google.script.run.withSuccessHandler(function(apiKey) {
       var script = document.createElement('script');
       script.src = 'https://maps.googleapis.com/maps/api/js?key=' + apiKey + '&libraries=marker,geometry,places&callback=initMap';
