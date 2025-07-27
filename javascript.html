@@ -54,48 +54,48 @@
         animationIntervals = [];
     }
 
-async function refreshAllData() {
-    console.log(`[${new Date().toLocaleTimeString()}] データの更新を開始します...`);
-    const loader = document.getElementById('loader-overlay');
-    loader.classList.remove('hidden');
-    clearAllOverlays();
-    
-    // ★★★ サーバーからの戻り値の変数名を weatherData に変更 ★★★
-    const [routes, weatherData, quakes, outages, lspData, monogatariStores] = await Promise.all([
-        new Promise(resolve => google.script.run.withSuccessHandler(resolve).getRouteMapData()),
-        new Promise(resolve => google.script.run.withSuccessHandler(resolve).getWeatherWarningsFromSheet()),
-        new Promise(resolve => google.script.run.withSuccessHandler(resolve).getEarthquakeDataFromSheet()),
-        new Promise(resolve => google.script.run.withSuccessHandler(resolve).getPowerOutageDataFromMeraki()),
-        new Promise(resolve => google.script.run.withSuccessHandler(resolve).getLineShapedPrecipitationFromSheet()),
-        new Promise(resolve => google.script.run.withSuccessHandler(resolve).getMonogatariStores())
-    ]);
-    
-    //await fetchTyphoonData();
+    async function refreshAllData() {
+        console.log(`[${new Date().toLocaleTimeString()}] データの更新を開始します...`);
+        const loader = document.getElementById('loader-overlay');
+        loader.classList.remove('hidden');
+        clearAllOverlays();
+        
+        // 1. サーバーから全データを取得
+        const [routes, weatherData, quakes, outages, lspData, monogatariStores, affectedStores] = await Promise.all([
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getRouteMapData()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getWeatherWarningsFromSheet()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getEarthquakeDataFromSheet()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getPowerOutageDataFromMeraki()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getLineShapedPrecipitationFromSheet()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getMonogatariStores()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getStoreImpacts())
+        ]);
+        
+        await fetchTyphoonData();
 
-    console.log("基本データの取得が完了しました。");
-    allRoutes = routes;
+        console.log("全データ取得完了。描画を開始します。");
+        allRoutes = routes;
 
-    // --- 描画処理 ---
-    populateFilters(routes);
-    placeMonogatariMarkers(monogatariStores);
-    
-    // ★★★ この3行で表示を実現 ★★★
-    updatePrefectureHighlight(weatherData.affectedPrefectures, weatherData.warnings);
-    loadWeatherWarnings(weatherData.warnings); 
-    //placeWarningMarkers(weatherData.warnings);
-    //updatePrefectureHighlight(weatherData.affectedPrefectures, weatherData.warnings);
-    
-    placeEarthquakeMarkers(quakes);
-    placeMerakiOutageMarkers(outages);
-    if(lspData) {
-        placeLineShapedPrecipitationPolygons(lspData.polygons);
-        addLspTextToWarnings(lspData.texts);
+        // --- 2. 取得したデータに基づいてUIと地図を描画 ---
+        populateFilters(routes);
+        placeMonogatariMarkers(monogatariStores);
+        
+        // ★★★ ここからが描画ロジックの修正箇所 ★★★
+        loadWeatherWarnings(weatherData.warnings); // 警報リストを表示
+        updatePrefectureHighlight(weatherData.affectedPrefectures, weatherData.warnings); // 都道府県を色付け
+        
+        placeAffectedStoreMarkers(affectedStores); 
+        placeEarthquakeMarkers(quakes);
+        placeMerakiOutageMarkers(outages);
+        if(lspData) {
+            placeLineShapedPrecipitationPolygons(lspData.polygons);
+            addLspTextToWarnings(lspData.texts);
+        }
+        
+        document.getElementById('last-updated').textContent = '最終更新: ' + new Date().toLocaleTimeString();
+        console.log(`[${new Date().toLocaleTimeString()}] データ更新が完了しました。`);
+        loader.classList.add('hidden');
     }
-    
-    document.getElementById('last-updated').textContent = '最終更新: ' + new Date().toLocaleTimeString();
-    console.log(`[${new Date().toLocaleTimeString()}] データ更新が完了しました。`);
-    loader.classList.add('hidden');
-}
 
     // --- 初期化処理 ---
     async function initMap() {
@@ -657,35 +657,38 @@ function checkStoreImpacts() {
      * @param {Array<string>} prefectures - 色を塗る都道府県名のリスト
      * @param {Array<Object>} warnings - 色を決めるための警報データ
      */
-      function updatePrefectureHighlight(prefectures, warnings) {
-        // データがなければ何もしない
-        if (!prefectures || prefectures.length === 0 || !map.data) {
+    function updatePrefectureHighlight(prefectures, warnings) {
+        if (!map || !map.data) {
+            console.warn("Map data layer is not ready yet.");
+            // データレイヤーが準備できていなければ、少し待ってから再試行
+            setTimeout(() => updatePrefectureHighlight(prefectures, warnings), 500);
             return;
         }
 
         // まずすべての都道府県のスタイルをデフォルトに戻す
-        map.data.forEach(feature => {
-            map.data.revertStyle(feature);
-        });
+        map.data.revertStyle();
 
-        // 警報が出ている都道府県に色を塗る
+        if (!prefectures || prefectures.length === 0) return;
+
         map.data.forEach(feature => {
             const prefName = feature.getProperty('name_ja');
             if (prefectures.includes(prefName)) {
                 const maxLevelWarning = warnings
-                    .filter(w => w.region.startsWith(prefName))
+                    .filter(w => w.region && w.region.startsWith(prefName))
                     .reduce((max, w) => {
                         const style = getWarningStyle(w.title);
                         return style.level > max.level ? style : max;
                     }, { level: 0, color: '#333333' });
                 
-                map.data.overrideStyle(feature, {
-                    fillColor: maxLevelWarning.color,
-                    fillOpacity: 0.4,
-                    strokeColor: '#333',
-                    strokeWeight: 2,
-                    zIndex: 2
-                });
+                if (maxLevelWarning.level > 0) {
+                  map.data.overrideStyle(feature, {
+                      fillColor: maxLevelWarning.color,
+                      fillOpacity: 0.4,
+                      strokeColor: '#333',
+                      strokeWeight: 2,
+                      zIndex: 2
+                  });
+                }
             }
         });
     }
