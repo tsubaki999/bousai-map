@@ -344,22 +344,51 @@ async function refreshAllData() {
     function placeMarkers() {
         return new Promise(function(resolve) {
             var locationMap = new Map();
-            allRoutes.forEach(function(route) {
-                if (!locationMap.has(route.origin)) locationMap.set(route.origin, { name: route.originName, type: "base" });
-                if (route.waypoints) route.waypoints.forEach(function(w) { if (!locationMap.has(w.address)) locationMap.set(w.address, { name: w.name, type: "store" }); });
-                if (!locationMap.has(route.destination)) locationMap.set(route.destination, { name: route.destinationName, type: "store" });
-            });
-            var geocodingPromises = Array.from(locationMap.entries()).map(function(entry) {
-                return new Promise(function(pResolve) {
-                    geocoder.geocode({ address: entry[0] }, function(results, status) {
-                        if (status === 'OK' && results[0] && entry[1].type === 'store') {
-                           allStoreMarkers.push({ marker: { position: results[0].geometry.location, content: null }, name: entry[1].name });
-                        }
-                        pResolve();
-                    });
+            if(allRoutes) {
+                allRoutes.forEach(function(route) {
+                    if (!locationMap.has(route.origin)) locationMap.set(route.origin, { name: route.originName, type: "base" });
+                    if (route.waypoints) route.waypoints.forEach(function(w) { if (!locationMap.has(w.address)) locationMap.set(w.address, { name: w.name, type: "store" }); });
+                    if (!locationMap.has(route.destination)) locationMap.set(route.destination, { name: route.destinationName, type: "store" });
                 });
-            });
-            Promise.all(geocodingPromises).then(resolve);
+            }
+            
+            const geocodeEntries = Array.from(locationMap.entries());
+            let processedCount = 0;
+
+            // ★★★ 修正点：一度にリクエストせず、遅延させる ★★★
+            if (geocodeEntries.length === 0) {
+                return resolve();
+            }
+            
+            let i = 0;
+            function processNextEntry() {
+                if (i >= geocodeEntries.length) {
+                    // 全てのリクエストが終わったらPromiseを解決
+                    resolve();
+                    return;
+                }
+
+                const entry = geocodeEntries[i];
+                i++;
+
+                geocoder.geocode({ address: entry[0] }, function(results, status) {
+                    if (status === 'OK' && results[0] && entry[1].type === 'store') {
+                        allStoreMarkers.push({ 
+                            marker: { position: results[0].geometry.location, content: null }, 
+                            name: entry[1].name,
+                            address: entry[0] 
+                        });
+                    } else if (status !== 'OK') {
+                        console.error('ジオコーディング失敗: ' + (entry[1].name || entry[0]) + ' - ' + status);
+                    }
+                    
+                    // ★★★ 次のリクエストを100ミリ秒後に行う ★★★
+                    setTimeout(processNextEntry, 100); 
+                });
+            }
+
+            // 最初の処理を開始
+            processNextEntry();
         });
     }
     
