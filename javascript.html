@@ -759,8 +759,10 @@ async function fetchTyphoonData() {
  * @param {Array<Object>} typhoonData - 描画対象の台風データ配列
  */
 function placeTyphoonForecast(typhoonData) {
-    if (!typhoonData || typhoonData.length === 0) { return; }
-
+    if (!typhoonData || typhoonData.length === 0) {
+        return; 
+    }
+    
     const lineSymbol = { path: 'M 0,-1 0,1', strokeOpacity: 1, scale: 3 };
     
     typhoonData.forEach(function(typhoon) {
@@ -810,11 +812,10 @@ function placeTyphoonForecast(typhoonData) {
             };
             centerMarker.addListener('click', infoWindowListener);
         });
-    }); // ★★★ 不足していた閉じ括弧 `});` を追加 ★★★
+    });
     
     const isVisible = document.getElementById('toggleTyphoons').checked;
     toggleLayerVisibility(allTyphoonOverlays, isVisible);
-}
-
+} // ★★★ ここに不足していた関数を閉じる '}' を追加 ★★★
 
 </script>
