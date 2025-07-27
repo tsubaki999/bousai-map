@@ -123,7 +123,7 @@
       document.getElementById('toggleEarthquakes').addEventListener('change', function(e) { toggleLayerVisibility(allEarthquakeOverlays, e.target.checked); checkStoreImpacts(); });
       document.getElementById('toggleLsp').addEventListener('change', function(e) { toggleLayerVisibility(allLspPolygons, e.target.checked); });
       document.getElementById('toggleOutages').addEventListener('change', function(e) { toggleLayerVisibility(allOutageMarkers, e.target.checked); });
-      document.getElementById('toggleMonogatariStores').addEventListener('change', function(e) {
+      document.getElementById('toggleStores').addEventListener('change', function(e) {
           var markers = monogatariMarkers.map(function(m) { return m.marker; });
           toggleLayerVisibility(markers, e.target.checked);
       });
@@ -204,7 +204,7 @@
         markerContent.appendChild(pinContainer);
         return markerContent;
     }
-    
+
     // --- 物語コーポレーション店舗マーカー設置 ---
     function placeMonogatariMarkers(stores) {
         if (!stores || stores.length === 0) { console.log("店舗データがありません。"); return; }
