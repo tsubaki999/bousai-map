@@ -75,7 +75,10 @@
         populateFilters(routes);
         placeMonogatariMarkers(monogatariStores);
         loadWeatherWarnings(warnings);
-        placeWarningMarkers(warnings);
+        // ★★★ 呼び出す関数を整理 ★★★
+        loadWeatherWarnings(weatherData.warnings); 
+        updatePrefectureHighlight(weatherData.affectedPrefectures, weatherData.warnings); // 都道府県の色付けはこちら
+        //placeWarningMarkers(warnings);
         placeEarthquakeMarkers(quakes);
         placeMerakiOutageMarkers(outages);
         if(lspData) {
@@ -118,13 +121,13 @@
 
         // サーバーからGeoJSONデータを非同期で取得して地図に追加
         google.script.run.withSuccessHandler(function(geojson) {
-            if (geojson) {
-                map.data.addGeoJson(geojson);
-                console.log("GeoJSONデータが地図にロードされました。");
-            } else {
-                console.error("GeoJSONデータの読み込みに失敗しました。");
-            }
-        }).getGeoJson();
+        if (geojson) {
+            map.data.addGeoJson(geojson);
+            console.log("GeoJSONデータが地図にロードされました。");
+        } else {
+            console.error("GeoJSONデータの読み込みに失敗しました。");
+        }
+    }).getGeoJson();
 
         // 4. 全ての災害・店舗データを取得し、描画するメインの処理を実行
         await refreshAllData();
@@ -650,15 +653,12 @@ function checkStoreImpacts() {
      * @param {Array<Object>} warnings - 色を決めるための警報データ
      */
     function updatePrefectureHighlight(prefectures, warnings) {
-        if (!map || !map.data) {
-            console.warn("Map data layer is not ready yet.");
-            // データレイヤーが準備できていなければ、少し待ってから再試行
-            setTimeout(() => updatePrefectureHighlight(prefectures, warnings), 500);
-            return;
-        }
+        if (!map.data) { return; } // 安全装置
 
-        // まずすべての都道府県のスタイルをデフォルトに戻す
-        map.data.revertStyle();
+        // まずすべてのスタイルをリセット
+        map.data.forEach(feature => {
+            map.data.revertStyle(feature);
+        });
 
         if (!prefectures || prefectures.length === 0) return;
 
@@ -670,7 +670,7 @@ function checkStoreImpacts() {
                     .reduce((max, w) => {
                         const style = getWarningStyle(w.title);
                         return style.level > max.level ? style : max;
-                    }, { level: 0, color: '#333333' });
+                    }, { level: 0, color: '#FFFFFF' });
                 
                 if (maxLevelWarning.level > 0) {
                   map.data.overrideStyle(feature, {
