@@ -54,32 +54,36 @@
         animationIntervals = [];
     }
 
+    // --- 自動更新ロジック ---
     async function refreshAllData() {
         console.log(`[${new Date().toLocaleTimeString()}] データの更新を開始します...`);
-        const loader = document.getElementById('loader-overlay'); // ★★★ ローダー定義を復活 ★★★
+        const loader = document.getElementById('loader-overlay');
         loader.classList.remove('hidden');
         clearAllOverlays();
         
-        // 全てのデータを並行して取得
-        const [routes, weatherData, quakes, outages, lspData, monogatariStores] = await Promise.all([
+        // ★★★ 取得するデータリストを修正（GeoJSONは取得済みなので不要） ★★★
+        const [routes, weatherData, quakes, outages, lspData, monogatariStores, affectedStores] = await Promise.all([
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getRouteMapData()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getWeatherWarningsFromSheet()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getEarthquakeDataFromSheet()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getPowerOutageDataFromMeraki()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getLineShapedPrecipitationFromSheet()),
-            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getMonogatariStores())
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getMonogatariStores()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getStoreImpacts())
         ]);
         
         console.log("全データ取得完了。描画を開始します。");
         allRoutes = routes;
 
-        // --- 描画処理の呼び出し ---
+        // --- 描画処理 ---
         populateFilters(routes);
         placeMonogatariMarkers(monogatariStores);
         
+        // updatePrefectureHighlightを呼び出す前に、GeoJSONがロードされていることが保証される
+        updatePrefectureHighlight(weatherData.affectedPrefectures, weatherData.warnings);
         loadWeatherWarnings(weatherData.warnings); 
-        updatePrefectureHighlight(weatherData.affectedPrefectures, weatherData.warnings); // ★★★ 色付け関数を呼び出す ★★★
         
+        placeAffectedStoreMarkers(affectedStores);
         placeEarthquakeMarkers(quakes);
         placeMerakiOutageMarkers(outages);
         if(lspData) {
@@ -87,71 +91,51 @@
             addLspTextToWarnings(lspData.texts);
         }
         
-        // placeWarningMarkersは不要なので呼び出さない
-        checkStoreImpacts(); // 影響店舗のハイライトは行う
-        
         document.getElementById('last-updated').textContent = '最終更新: ' + new Date().toLocaleTimeString();
         console.log(`[${new Date().toLocaleTimeString()}] データ更新が完了しました。`);
-        loader.classList.add('hidden'); // ★★★ ローダー非表示を復活 ★★★
+        loader.classList.add('hidden');
     }
-
 
     // --- 初期化処理 ---
     async function initMap() {
-        // 1. マップとAPIオブジェクトを初期化
-        map = new google.maps.Map(document.getElementById("map"), {
-            center: { lat: 36.2048, lng: 138.2529 },
-            zoom: 5, // 日本全体が見えるように少し広めに設定
-            mapId: 'd9bbe126f7dc436f2b40c092'
-        });
+        map = new google.maps.Map(document.getElementById("map"), { center: { lat: 36.2048, lng: 138.2529 }, zoom: 5, mapId: 'd9bbe126f7dc436f2b40c092' });
         trafficLayer = new google.maps.TrafficLayer();
-        // trafficLayer.setMap(map); // デフォルトではOFFにして、トグルでONにする
         directionsService = new google.maps.DirectionsService();
         infoWindow = new google.maps.InfoWindow();
         geocoder = new google.maps.Geocoder();
         
-        // 2. UIのイベントリスナーを設定
         setupLayerToggles();
         setupRadarControls();
-        
-        // 3. 都道府県の境界線データ（GeoJSON）を地図に読み込む
-        // まず、データレイヤーのデフォルトスタイルを設定
+
+        // ★★★ 1. GeoJSONの読み込みを先に完了させる ★★★
+        await new Promise(resolve => {
+            google.script.run.withSuccessHandler(function(geojson) {
+                if (geojson) {
+                    map.data.addGeoJson(geojson);
+                    console.log("GeoJSONデータが地図にロードされました。");
+                } else {
+                    console.error("GeoJSONデータの読み込みに失敗しました。");
+                }
+                resolve(); // 読み込みが完了（成功または失敗）したら次に進む
+            }).getGeoJson();
+        });
+
         map.data.setStyle({
-            fillOpacity: 0,      // 通常時は透明
-            strokeColor: '#888', // 通常時の県境の色
+            fillOpacity: 0,
+            strokeColor: '#888',
             strokeWeight: 1,
             zIndex: 1
         });
-
-        // サーバーからGeoJSONデータを非同期で取得して地図に追加
-        google.script.run.withSuccessHandler(function(geojson) {
-        if (geojson) {
-            map.data.addGeoJson(geojson);
-            console.log("GeoJSONデータが地図にロードされました。");
-        } else {
-            console.error("GeoJSONデータの読み込みに失敗しました。");
-        }
-    }).getGeoJson();
-
-        // 4. 全ての災害・店舗データを取得し、描画するメインの処理を実行
+        
+        // 2. GeoJSONの準備が整ってからデータ取得と描画を開始
         await refreshAllData();
         
-        // 5. 5分ごとにページ全体をリロードしてデータを最新化
         setInterval(() => {
-            console.log("5分経過したため、ページ全体をリフレッシュします。");
             document.getElementById('loader-overlay').classList.remove('hidden');
             location.reload();
         }, 5 * 60 * 1000);
     }
 
-    // ★★★ GeoJSONをサーバーから非同期で取得して地図にロード ★★★
-    google.script.run.withSuccessHandler(function(geojson) {
-        if (geojson) {
-            map.data.addGeoJson(geojson);
-        } else {
-            console.error("GeoJSONデータの読み込みに失敗しました。");
-        }
-    }).getGeoJson();
 
     // --- イベントリスナー設定 ---
     function setupLayerToggles() {
