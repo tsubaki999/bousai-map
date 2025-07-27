@@ -59,36 +59,49 @@
         const loader = document.getElementById('loader-overlay');
         loader.classList.remove('hidden');
         clearAllOverlays();
-        
-        // ★★★ サーバーからのデータ取得を一本化 ★★★
-        const [routes, affectedStores, monogatariStores, outages] = await Promise.all([
+
+        // 1. まず、リスク評価に必要なすべての生データをサーバーから取得
+        const [routes, warnings, quakes, outages, lspData, monogatariStores] = await Promise.all([
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getRouteMapData()),
-            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getStoreImpacts()),
-            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getMonogatariStores()),
-            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getPowerOutageDataFromMeraki())
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getWeatherWarningsFromSheet()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getEarthquakeDataFromSheet()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getPowerOutageDataFromMeraki()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getLineShapedPrecipitationFromSheet()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getMonogatariStores())
         ]);
         
-        // 台風データのみクライアントサイドで取得
-        await fetchTyphoonData();
+        // 2. クライアントサイドで台風データを取得
+        const typhoonData = await fetchTyphoonData();
 
-        console.log("リスク評価結果の取得が完了しました。");
-        allRoutes = routes;
+        // 3. 取得した全データをまとめて、サーバーのリスク評価関数に渡す
+        const disasterData = { warnings, quakes, outages, typhoons: typhoonData };
+        
+        google.script.run
+            .withSuccessHandler(function(affectedStores) {
+                // --- 4. サーバーからの評価結果と、取得済みのデータを使って描画 ---
+                console.log("リスク評価結果の取得が完了しました。");
+                allRoutes = routes;
 
-        // --- 描画処理 ---
-        populateFilters(routes);
-        placeMonogatariMarkers(monogatariStores);     // 1. 全店舗をピンで描画
-        placeAffectedStoreMarkers(affectedStores);      // 2. リスクのある店舗にスコアマーカーを重ねて描画 & リストを作成
-        placeMerakiOutageMarkers(outages);            // 3. 停電情報を描画
-        
-        // ★★★ 不要になった関数の呼び出しを削除 ★★★
-        // loadWeatherWarnings(warnings); 
-        // placeWarningMarkers(warnings);
-        // placeEarthquakeMarkers(quakes);
-        // updatePrefectureHighlight(...);
-        
-        document.getElementById('last-updated').textContent = '最終更新: ' + new Date().toLocaleTimeString();
-        console.log(`[${new Date().toLocaleTimeString()}] データ更新が完了しました。`);
-        loader.classList.add('hidden');
+                populateFilters(routes);
+                placeMonogatariMarkers(monogatariStores);
+                placeAffectedStoreMarkers(affectedStores);
+                loadWeatherWarnings(warnings); 
+                placeMerakiOutageMarkers(outages);
+                if(lspData) {
+                    placeLineShapedPrecipitationPolygons(lspData.polygons);
+                    addLspTextToWarnings(lspData.texts);
+                }
+                
+                document.getElementById('last-updated').textContent = '最終更新: ' + new Date().toLocaleTimeString();
+                console.log(`[${new Date().toLocaleTimeString()}] データ更新が完了しました。`);
+                loader.classList.add('hidden');
+            })
+            .withFailureHandler(err => {
+                console.error("リスク評価でエラー:", err);
+                alert("リスク評価中にサーバーでエラーが発生しました。ログを確認してください。");
+                loader.classList.add('hidden');
+            })
+            .getStoreImpacts(monogatariStores, disasterData, document.querySelector('input[name="evaluation_time"]:checked').value === 'future');
     }
 
     // --- 初期化処理 ---
