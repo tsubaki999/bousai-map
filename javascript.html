@@ -188,6 +188,23 @@
         return markerContent;
     }
 
+    // ★★★ この関数を placeMonogatariMarkers の前に追加 ★★★
+    function createPinMarkerElement() {
+        var markerContent = document.createElement('div');
+        markerContent.style.cursor = 'pointer';
+        markerContent.className = 'pin-marker-content';
+        var pinContainer = document.createElement('div');
+        pinContainer.style.cssText = 'position: relative; width: 28px; height: 40px; transform: translate(-50%, -100%);';
+        var pinBody = document.createElement('div');
+        pinBody.style.cssText = 'position: absolute; left: 0; top: 0; width: 28px; height: 28px; border-radius: 50% 50% 50% 0; background: #EA4335; transform: rotate(-45deg); border: 1px solid #C62828;';
+        pinContainer.appendChild(pinBody);
+        var pinHead = document.createElement('div');
+        pinHead.style.cssText = 'position: absolute; left: 7px; top: 7px; width: 14px; height: 14px; border-radius: 50%; background: white;';
+        pinContainer.appendChild(pinHead);
+        markerContent.appendChild(pinContainer);
+        return markerContent;
+    }
+    
     // --- 物語コーポレーション店舗マーカー設置 ---
     function placeMonogatariMarkers(stores) {
         if (!stores || stores.length === 0) { console.log("店舗データがありません。"); return; }
