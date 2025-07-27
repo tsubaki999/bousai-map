@@ -60,31 +60,49 @@
         loader.classList.remove('hidden');
         clearAllOverlays();
         
-        const [routes, warnings, quakes, outages, lspData, monogatariStores] = await Promise.all([
+        // ★★★ 正しいデータ取得リストに修正 ★★★
+        const [
+            routes, 
+            weatherData, 
+            quakes, 
+            outages, 
+            lspData, 
+            monogatariStores, 
+            affectedStores // getStoreImpactsは後で実行
+        ] = await Promise.all([
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getRouteMapData()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getWeatherWarningsFromSheet()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getEarthquakeDataFromSheet()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getPowerOutageDataFromMeraki()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getLineShapedPrecipitationFromSheet()),
-            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getMonogatariStores())
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getMonogatariStores()),
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getStoreImpacts()) // リスク評価も一旦ここで取得
         ]);
         
-        console.log("全データ取得完了。");
+        // ★★★ 台風データはクライアントサイドでの取得を一時停止（安定化のため） ★★★
+        // await fetchTyphoonData(); 
+
+        console.log("全データ取得完了。描画を開始します。");
         allRoutes = routes;
 
+        // --- 描画処理 ---
         populateFilters(routes);
         placeMonogatariMarkers(monogatariStores);
-        loadWeatherWarnings(warnings);
-        // ★★★ 呼び出す関数を整理 ★★★
+        
+        // weatherDataから正しい配列を渡す
         loadWeatherWarnings(weatherData.warnings); 
-        updatePrefectureHighlight(weatherData.affectedPrefectures, weatherData.warnings); // 都道府県の色付けはこちら
-        //placeWarningMarkers(warnings);
+        updatePrefectureHighlight(weatherData.affectedPrefectures, weatherData.warnings);
+        
+        // placeWarningMarkersはコメントアウトのまま
+        
         placeEarthquakeMarkers(quakes);
         placeMerakiOutageMarkers(outages);
         if(lspData) {
             placeLineShapedPrecipitationPolygons(lspData.polygons);
             addLspTextToWarnings(lspData.texts);
         }
+        
+        // placeAffectedStoreMarkers(affectedStores); // リスク評価は一旦表示を保留
         
         document.getElementById('last-updated').textContent = '最終更新: ' + new Date().toLocaleTimeString();
         console.log(`[${new Date().toLocaleTimeString()}] データ更新が完了しました。`);
@@ -508,70 +526,7 @@ function checkStoreImpacts() {
     }
 }
 
-    /*
-    function checkStoreImpacts() {
-        var list = document.getElementById('affectedStoresList'); list.innerHTML = '';
-        var affectedStoresForList = [];
-        var allCheckableStores = allStoreMarkers.concat(monogatariMarkers);
 
-        allCheckableStores.forEach(function(store) {
-            if (!store || !store.marker || !store.marker.position) return;
-            
-            const affectingWarningCircles = allWarningCircles.filter(c => c.getMap() != null && google.maps.geometry.spherical.computeDistanceBetween(store.marker.position, c.getCenter()) <= c.getRadius());
-            const affectingQuakeCircles = allEarthquakeCircles.filter(c => c.getMap() != null && google.maps.geometry.spherical.computeDistanceBetween(store.marker.position, c.getCenter()) <= c.getRadius());
-            const allAffectingCircles = [].concat(affectingWarningCircles, affectingQuakeCircles);
-            
-            var markerContent = store.marker.content;
-            
-            if (allAffectingCircles.length > 0) {
-                let highestImpactStyle = null;
-                let maxImpactLevel = -1;
-
-                allAffectingCircles.forEach(circle => {
-                    const style = circle.warningStyle || circle.quakeStyle;
-                    if (style && style.impactLevel > maxImpactLevel) {
-                        maxImpactLevel = style.impactLevel;
-                        highestImpactStyle = style;
-                    }
-                });
-
-                if (highestImpactStyle) {
-                    affectedStoresForList.push({ name: store.name, level: maxImpactLevel, color: highestImpactStyle.color, text: highestImpactStyle.name, store: store });
-                    
-                    // マーカーの見た目の変更は、contentが存在する場合（＝表示中のマーカー）のみ行う
-                    if (markerContent && markerContent.classList.contains('pin-marker-content')) {
-                        var newLabel = document.createElement('div');
-                        newLabel.className = 'warning-label';
-                        newLabel.style.backgroundColor = highestImpactStyle.color;
-                        const textColor = highestImpactStyle.textColor || ((highestImpactStyle.level === 2) ? '#000' : '#fff');
-                        newLabel.style.color = textColor;
-                        newLabel.textContent = store.name;
-                        store.marker.content = newLabel;
-                    }
-                }
-            } else {
-                // 影響がなくなった場合、contentが存在する場合のみ元のマーカーに戻す
-                if (markerContent && markerContent.classList.contains('warning-label')) {
-                    store.marker.content = createPinMarkerContent();
-                }
-            }
-        });
-
-        affectedStoresForList.sort((a, b) => b.level - a.level);
-        if (affectedStoresForList.length === 0) {
-            list.innerHTML = '<li>現在、影響を受けている店舗はありません。</li>';
-        } else {
-            affectedStoresForList.forEach(function(item) {
-                var li = document.createElement('li');
-                li.style.cssText = 'padding: 4px 0; cursor: pointer; border-left: 4px solid ' + item.color + '; padding-left: 8px; margin-bottom: 4px;';
-                li.innerHTML = `<span style="color:${item.color}; font-weight: bold;">${escapeHtml(item.text)}</span> ${escapeHtml(item.name)}`;
-                li.onmouseover = function() { this.style.backgroundColor = '#f5f5f5'; };
-                li.onmouseout = function() { this.style.backgroundColor = 'transparent'; };
-                li.onclick = function() { map.setCenter(item.store.marker.position); map.setZoom(14); };
-                list.appendChild(li);
-            });
-        }
-    }*/
 
 
     function populateFilters(data) {
