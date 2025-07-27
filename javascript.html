@@ -60,8 +60,8 @@ async function refreshAllData() {
     loader.classList.remove('hidden');
     clearAllOverlays();
     
-    // ★★★ 修正点：getStoreImpactsの呼び出しをやめ、個別のデータ取得に戻す ★★★
-    const [routes, warnings, quakes, outages, lspData, monogatariStores] = await Promise.all([
+    // ★★★ サーバーからの戻り値の変数名を weatherData に変更 ★★★
+    const [routes, weatherData, quakes, outages, lspData, monogatariStores] = await Promise.all([
         new Promise(resolve => google.script.run.withSuccessHandler(resolve).getRouteMapData()),
         new Promise(resolve => google.script.run.withSuccessHandler(resolve).getWeatherWarningsFromSheet()),
         new Promise(resolve => google.script.run.withSuccessHandler(resolve).getEarthquakeDataFromSheet()),
@@ -70,7 +70,6 @@ async function refreshAllData() {
         new Promise(resolve => google.script.run.withSuccessHandler(resolve).getMonogatariStores())
     ]);
     
-    // 台風データ取得はそのまま
     //await fetchTyphoonData();
 
     console.log("基本データの取得が完了しました。");
@@ -78,13 +77,15 @@ async function refreshAllData() {
 
     // --- 描画処理 ---
     populateFilters(routes);
-    placeMonogatariMarkers(monogatariStores);     // 全店舗をピンで描画
+    placeMonogatariMarkers(monogatariStores);
     
-    // ★★★ 修正点：古い描画関数を呼び出すように戻す ★★★
-    loadWeatherWarnings(warnings);
-    placeWarningMarkers(warnings);             // 警報の円を描画
-    placeEarthquakeMarkers(quakes);            // 地震の円とマーカーを描画
-    placeMerakiOutageMarkers(outages);         // 停電情報を描画
+    // ★★★ weatherData オブジェクトから、正しい配列を渡すように修正 ★★★
+    loadWeatherWarnings(weatherData.warnings); 
+    placeWarningMarkers(weatherData.warnings);
+    updatePrefectureHighlight(weatherData.affectedPrefectures, weatherData.warnings);
+    
+    placeEarthquakeMarkers(quakes);
+    placeMerakiOutageMarkers(outages);
     if(lspData) {
         placeLineShapedPrecipitationPolygons(lspData.polygons);
         addLspTextToWarnings(lspData.texts);
