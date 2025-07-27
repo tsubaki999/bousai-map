@@ -190,24 +190,31 @@
 
     // --- 物語コーポレーション店舗マーカー設置 ---
     function placeMonogatariMarkers(stores) {
-        if (!stores || stores.length === 0) { return; }
+        if (!stores || stores.length === 0) { console.log("店舗データがありません。"); return; }
         monogatariMarkers.forEach(m => m.marker.setMap(null));
         monogatariMarkers = [];
         stores.forEach(store => {
-            const lat = parseFloat(store.lat), lng = parseFloat(store.lng);
-            if (isNaN(lat) || isNaN(lng)) return;
-
-            const position = { lat, lng };
-            const marker = new google.maps.marker.AdvancedMarkerElement({ map: map, position: position, content: createPinMarkerContent(), title: store.name });
-            monogatariMarkers.push({ marker: marker, name: store.name, address: store.address });
-            
-            marker.addListener("gmp-click", () => {
-                const content = '<div style="font-family: sans-serif; font-size: 14px; max-width: 280px;"><strong style="font-size: 16px;">' + escapeHtml(store.name) + '</strong><br><strong>住所:</strong> ' + escapeHtml(store.address) + '<br><a href="https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(store.address) + '" target="_blank">Googleマップで見る</a></div>';
-                infoWindow.setContent(content);
-                infoWindow.open({ anchor: marker, map: map });
-            });
+            const lat = parseFloat(store.lat);
+            const lng = parseFloat(store.lng);
+            if (!isNaN(lat) && !isNaN(lng)) {
+                const position = { lat: lat, lng: lng };
+                var marker = new google.maps.marker.AdvancedMarkerElement({ map: map, position: position, content: createPinMarkerElement(), title: store.name });
+                monogatariMarkers.push({ marker: marker, name: store.name, address: store.address });
+                
+                marker.addListener("gmp-click", () => {
+                    var content = '<div style="font-family: sans-serif; font-size: 14px; max-width: 280px;"><strong style="font-size: 16px;">' + escapeHtml(store.name) + '</strong><br><strong>住所:</strong> ' + escapeHtml(store.address) + '<br><a href="https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(store.address) + '" target="_blank">Googleマップで見る</a></div>';
+                    infoWindow.setContent(content);
+                    infoWindow.open({ anchor: marker, map: map });
+                });
+            } else { 
+                console.warn('無効な座標の店舗データ: ' + store.name); 
+            }
         });
-        toggleLayerVisibility(monogatariMarkers.map(m => m.marker), document.getElementById('toggleStores').checked);
+
+        // ★★★ 修正点: IDを 'toggleMonogatariStores' から 'toggleStores' に変更 ★★★
+        const initialVisibility = document.getElementById('toggleStores').checked;
+        const markers = monogatariMarkers.map(m => m.marker);
+        toggleLayerVisibility(markers, initialVisibility);
     }
 
     // --- 災害情報、配送ルート、その他マーカーの設置 ---
