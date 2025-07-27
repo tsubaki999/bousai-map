@@ -60,31 +60,22 @@
         loader.classList.remove('hidden');
         clearAllOverlays();
         
-        // 1. サーバーから全データを取得
-        const [routes, weatherData, quakes, outages, lspData, monogatariStores, affectedStores] = await Promise.all([
+        const [routes, warnings, quakes, outages, lspData, monogatariStores] = await Promise.all([
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getRouteMapData()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getWeatherWarningsFromSheet()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getEarthquakeDataFromSheet()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getPowerOutageDataFromMeraki()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getLineShapedPrecipitationFromSheet()),
-            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getMonogatariStores()),
-            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getStoreImpacts())
+            new Promise(resolve => google.script.run.withSuccessHandler(resolve).getMonogatariStores())
         ]);
         
-        await fetchTyphoonData();
-
-        console.log("全データ取得完了。描画を開始します。");
+        console.log("全データ取得完了。");
         allRoutes = routes;
 
-        // --- 2. 取得したデータに基づいてUIと地図を描画 ---
         populateFilters(routes);
         placeMonogatariMarkers(monogatariStores);
-        
-        // ★★★ ここからが描画ロジックの修正箇所 ★★★
-        loadWeatherWarnings(weatherData.warnings); // 警報リストを表示
-        updatePrefectureHighlight(weatherData.affectedPrefectures, weatherData.warnings); // 都道府県を色付け
-        
-        placeAffectedStoreMarkers(affectedStores); 
+        loadWeatherWarnings(warnings);
+        placeWarningMarkers(warnings);
         placeEarthquakeMarkers(quakes);
         placeMerakiOutageMarkers(outages);
         if(lspData) {
@@ -96,6 +87,7 @@
         console.log(`[${new Date().toLocaleTimeString()}] データ更新が完了しました。`);
         loader.classList.add('hidden');
     }
+
 
     // --- 初期化処理 ---
     async function initMap() {
