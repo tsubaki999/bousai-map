@@ -56,10 +56,11 @@
 
     async function refreshAllData() {
         console.log(`[${new Date().toLocaleTimeString()}] データの更新を開始します...`);
-        // ...ローダー表示、クリア処理...
+        const loader = document.getElementById('loader-overlay'); // ★★★ ローダー定義を復活 ★★★
+        loader.classList.remove('hidden');
         clearAllOverlays();
         
-        // ★★★ weatherData を受け取るように変更 ★★★
+        // 全てのデータを並行して取得
         const [routes, weatherData, quakes, outages, lspData, monogatariStores] = await Promise.all([
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getRouteMapData()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getWeatherWarningsFromSheet()),
@@ -69,23 +70,29 @@
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getMonogatariStores())
         ]);
         
-        // ...
-        console.log("全データ取得完了。");
+        console.log("全データ取得完了。描画を開始します。");
+        allRoutes = routes;
 
-        // ★★★ 取得したデータをコンソールで確認 ★★★
-        console.log("サーバーから受け取った警報データ:", weatherData);
-        if(weatherData && weatherData.affectedPrefectures){
-            console.log("影響のある都道府県:", weatherData.affectedPrefectures);
-        } else {
-            console.log("影響のある都道府県データがありません。");
+        // --- 描画処理の呼び出し ---
+        populateFilters(routes);
+        placeMonogatariMarkers(monogatariStores);
+        
+        loadWeatherWarnings(weatherData.warnings); 
+        updatePrefectureHighlight(weatherData.affectedPrefectures, weatherData.warnings); // ★★★ 色付け関数を呼び出す ★★★
+        
+        placeEarthquakeMarkers(quakes);
+        placeMerakiOutageMarkers(outages);
+        if(lspData) {
+            placeLineShapedPrecipitationPolygons(lspData.polygons);
+            addLspTextToWarnings(lspData.texts);
         }
         
-        // ★★★ 描画処理は一時的にコメントアウト ★★★
-        // placeWarningMarkers(weatherData.warnings);
-        // ...
+        // placeWarningMarkersは不要なので呼び出さない
+        checkStoreImpacts(); // 影響店舗のハイライトは行う
         
-        console.log(`[${new Date().toLocaleTimeString()}] データ確認完了。`);
-        loader.classList.add('hidden');
+        document.getElementById('last-updated').textContent = '最終更新: ' + new Date().toLocaleTimeString();
+        console.log(`[${new Date().toLocaleTimeString()}] データ更新が完了しました。`);
+        loader.classList.add('hidden'); // ★★★ ローダー非表示を復活 ★★★
     }
 
 
@@ -591,23 +598,22 @@ function checkStoreImpacts() {
       });
     }
     /**
-     * 【新規作成】都道府県のハイライト表示を更新する関数
+     * 都道府県のハイライト表示を更新する関数
      * @param {Array<string>} prefectures - 色を塗る都道府県名のリスト
      * @param {Array<Object>} warnings - 色を決めるための警報データ
      */
     function updatePrefectureHighlight(prefectures, warnings) {
-        if (!map.data) { return; } // 安全装置
+        if (!map.data) { return; } 
 
-        // まずすべてのスタイルをリセット
-        map.data.forEach(feature => {
-            map.data.revertStyle(feature);
-        });
+        // まずすべての都道府県のスタイルをデフォルトに戻す
+        map.data.revertStyle();
 
         if (!prefectures || prefectures.length === 0) return;
 
         map.data.forEach(feature => {
             const prefName = feature.getProperty('name_ja');
             if (prefectures.includes(prefName)) {
+                // この都道府県の最高レベルの警報を探す
                 const maxLevelWarning = warnings
                     .filter(w => w.region && w.region.startsWith(prefName))
                     .reduce((max, w) => {
