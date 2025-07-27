@@ -56,11 +56,12 @@
 
     async function refreshAllData() {
         console.log(`[${new Date().toLocaleTimeString()}] データの更新を開始します...`);
-        // ★★★ 修正点: 更新開始時にローダーを再表示（自動更新時用）★★★
         const loader = document.getElementById('loader-overlay');
         loader.classList.remove('hidden');
         clearAllOverlays();
-        const [routes, warnings, quakes, outages, lspData, monogatariStores] = await Promise.all([
+
+        // 1. まず、リスク評価に必要なすべての生データをサーバーから取得
+        const [routes, warningsData, quakes, outages, lspData, monogatariStores] = await Promise.all([
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getRouteMapData()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getWeatherWarningsFromSheet()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getEarthquakeDataFromSheet()),
@@ -68,23 +69,50 @@
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getLineShapedPrecipitationFromSheet()),
             new Promise(resolve => google.script.run.withSuccessHandler(resolve).getMonogatariStores())
         ]);
-        console.log("最新データの取得が完了しました。");
-        allRoutes = routes;
-        populateFilters(routes);
-        await placeMarkers();
-        //drawFilteredRoutes();
-        await placeMonogatariMarkers(monogatariStores);
-        loadWeatherWarnings(warnings);
-        placeEarthquakeMarkers(quakes);
-        placeMerakiOutageMarkers(outages);
-        if(lspData) {
-            placeLineShapedPrecipitationPolygons(lspData.polygons);
-            addLspTextToWarnings(lspData.texts);
-        }
-        placeWarningMarkers(warnings);
-        document.getElementById('last-updated').textContent = '最終更新: ' + new Date().toLocaleTimeString();
-        console.log(`[${new Date().toLocaleTimeString()}] データの更新が完了しました。`);
-        loader.classList.add('hidden');
+        
+        // 2. クライアントサイドで台風データを取得
+        const typhoonData = await fetchTyphoonData();
+
+        // 3. 取得した全データをまとめて、サーバーのリスク評価関数に渡す準備
+        const disasterData = { 
+            warnings: warningsData.warnings, // warningsDataオブジェクトからwarnings配列を取り出す
+            quakes: quakes, 
+            outages: outages, 
+            typhoons: typhoonData 
+        };
+        
+        // isFutureフラグを取得
+        const isFuture = document.querySelector('input[name="evaluation_time"]:checked').value === 'future';
+        
+        // 4. リスク評価をサーバーに依頼
+        google.script.run
+            .withSuccessHandler(function(affectedStores) { // ここで評価結果を受け取る
+                // --- 5. サーバーからの評価結果と、取得済みの生データを使って描画 ---
+                console.log("リスク評価結果の取得が完了しました。");
+                allRoutes = routes;
+
+                populateFilters(routes);
+                placeMonogatariMarkers(monogatariStores);     // 全店舗をピンで描画
+                placeAffectedStoreMarkers(affectedStores);      // リスクのある店舗にスコアマーカーを重ねて描画
+                updatePrefectureHighlight(warningsData.affectedPrefectures, warningsData.warnings); // 都道府県を色付け
+                loadWeatherWarnings(warningsData.warnings);   // 警報リストを描画
+                placeMerakiOutageMarkers(outages);              // 停電情報を描画
+                placeEarthquakeMarkers(quakes);                 // 地震情報を描画
+                if(lspData) {
+                    placeLineShapedPrecipitationPolygons(lspData.polygons);
+                    addLspTextToWarnings(lspData.texts);
+                }
+                
+                document.getElementById('last-updated').textContent = '最終更新: ' + new Date().toLocaleTimeString();
+                console.log(`[${new Date().toLocaleTimeString()}] データ更新が完了しました。`);
+                loader.classList.add('hidden');
+            })
+            .withFailureHandler(err => {
+                console.error("リスク評価でエラー:", err);
+                alert("リスク評価中にサーバーでエラーが発生しました。ログを確認してください。");
+                loader.classList.add('hidden');
+            })
+            .getStoreImpacts(monogatariStores, disasterData, isFuture);
     }
 
     // --- 初期化処理 ---
