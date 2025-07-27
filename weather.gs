@@ -695,24 +695,17 @@ function getWeatherWarningsFromSheet() {
     const mappedData = data.map(row => ({ time: new Date(row[0]), title: row[1], summary: row[2], region: row[3], lat: row[4], lng: row[5], link: row[6] }));
     
     const now = new Date();
-    const threeHoursAgo = new Date(now.getTime() - (3 * 60 * 60 * 1000));
-    Logger.log(`フィルタリング基準時刻: ${threeHoursAgo.toLocaleString()}`);
-
-    // ★★★ フィルタリング前の全データをログ出力 ★★★
-    // mappedData.forEach((d, i) => {
-    //   Logger.log(`[${i}] ${d.time.toLocaleString()} - ${d.title} - ${d.region}`);
-    // });
+    // ★★★ フィルター期間を24時間に変更 ★★★
+    const twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+    Logger.log(`フィルタリング基準時刻: ${twentyFourHoursAgo.toLocaleString()}`);
 
     const warnings = mappedData.filter(w => 
         w.title && 
         !w.title.includes('解除') && 
-        w.time >= threeHoursAgo
+        w.time >= twentyFourHoursAgo // ★★★ twentyFourHoursAgo を使用 ★★★
     );
     
-    Logger.log(`時間フィルターと「解除」除外後の有効な警報件数: ${warnings.length} 件`);
-    if(warnings.length > 0) {
-      Logger.log(` -> 最初の有効な警報: ${warnings[0].title} in ${warnings[0].region}`);
-    }
+    Logger.log(`24時間フィルターと「解除」除外後の有効な警報件数: ${warnings.length} 件`);
 
     const affectedPrefs = [...new Set(warnings.map(w => {
       if (!w.region) return null;

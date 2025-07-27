@@ -79,10 +79,11 @@ async function refreshAllData() {
     populateFilters(routes);
     placeMonogatariMarkers(monogatariStores);
     
-    // ★★★ weatherData オブジェクトから、正しい配列を渡すように修正 ★★★
-    loadWeatherWarnings(weatherData.warnings); 
-    placeWarningMarkers(weatherData.warnings);
+    // ★★★ この3行で表示を実現 ★★★
     updatePrefectureHighlight(weatherData.affectedPrefectures, weatherData.warnings);
+    loadWeatherWarnings(weatherData.warnings); 
+    //placeWarningMarkers(weatherData.warnings);
+    //updatePrefectureHighlight(weatherData.affectedPrefectures, weatherData.warnings);
     
     placeEarthquakeMarkers(quakes);
     placeMerakiOutageMarkers(outages);
@@ -597,37 +598,29 @@ function checkStoreImpacts() {
      * @param {Array<Object>} warnings - 色を決めるための警報データ
      */
     function updatePrefectureHighlight(prefectures, warnings) {
-        // GeoJSONデータがロードされるのを少し待つ
-        setTimeout(function() {
-            // まずすべての都道府県のスタイルをデフォルトに戻す
-            map.data.forEach(feature => {
-                map.data.revertStyle(feature);
-            });
-
+        setTimeout(function() { // GeoJSONのロードを待つ
+            map.data.forEach(feature => { map.data.revertStyle(feature); });
             if (!prefectures || prefectures.length === 0) return;
-
             map.data.forEach(feature => {
                 const prefName = feature.getProperty('name_ja');
                 if (prefectures.includes(prefName)) {
-                    // この都道府県に出ている最も高いレベルの警報を探す
                     const maxLevelWarning = warnings
                         .filter(w => w.region.startsWith(prefName))
                         .reduce((max, w) => {
                             const style = getWarningStyle(w.title);
                             return style.level > max.level ? style : max;
-                        }, { level: 0, color: '#333333' }); // デフォルト色
+                        }, { level: 0, color: '#333333' });
                     
-                    // 地図のデータレイヤーのスタイルを上書き
                     map.data.overrideStyle(feature, {
                         fillColor: maxLevelWarning.color,
                         fillOpacity: 0.4,
-                        strokeColor: '#333', // 境界線の色は濃いグレーで統一
+                        strokeColor: '#333',
                         strokeWeight: 2,
-                        zIndex: 2 // 他のポリゴンより手前に表示
+                        zIndex: 2
                     });
                 }
             });
-        }, 500); // 500ミリ秒待機（GeoJSONのロード時間）
+        }, 500);
     }
     google.script.run.withSuccessHandler(function(apiKey) {
       var script = document.createElement('script');
