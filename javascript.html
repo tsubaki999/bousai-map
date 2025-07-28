@@ -189,6 +189,22 @@ function setupLayerToggles() {
             }
         });
         slider.addEventListener('input', function() { if (currentRadarLayer) currentRadarLayer.setOpacity(parseFloat(this.value)); });
+          const pastSlider = document.getElementById('past-slider');
+          //ここから修正
+          const futureSlider = document.getElementById('future-slider');
+          const timeDisplay = document.getElementById('time-display');
+
+          // 各要素が存在する場合のみ、イベントリスナーを設定する
+          if (pastSlider) {
+            pastSlider.addEventListener('input', updateRadarOverlay);
+          }
+          if (futureSlider) {
+            futureSlider.addEventListener('input', updateRadarOverlay);
+          }
+          if (timeDisplay) {
+            timeDisplay.textContent = formatTime(0);
+          }
+        }
     }
 
     // --- マーカーコンテンツ生成ヘルパー ---
